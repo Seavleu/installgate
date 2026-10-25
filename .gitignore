@@ -1,0 +1,32 @@
+# Secrets and local env
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+
+# InstallGate cache
+.cache/
+
+# Node / Next.js
+ui/node_modules/
+ui/.next/
+ui/out/
+ui/*.tsbuildinfo
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

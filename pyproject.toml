@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "installgate"
+version = "0.1.0"
+description = "Pre-install trust gate for coding agents"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "InstallGate contributors" }]
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic>=2",
+  "httpx",
+  "pyyaml",
+  "rapidfuzz",
+  "openai",
+  "tavily-python",
+  "mcp",
+  "typer",
+]
+
+# Jenny: uncomment when cli.py has main()
+# [project.scripts]
+# installgate = "mcp_server.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "respx",
+  "ruff",
+  "mypy",
+  "pre-commit",
+  "types-PyYAML",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "contracts",
+  "engine",
+  "validator",
+  "router",
+  "remediate",
+  "mcp_server",
+  "eval",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = [
+  "contracts",
+  "engine",
+  "validator",
+  "router",
+  "remediate",
+  "mcp_server",
+  "eval",
+  "tests",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"contracts/contracts.py" = ["E501", "UP037", "UP045"]
+"tests/test_policy.py" = ["E402"]
+
+[tool.ruff.format]
+exclude = ["contracts/contracts.py"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = [
+  "contracts",
+  "engine",
+  "validator",
+  "router",
+  "remediate",
+  "mcp_server",
+]
+
+[[tool.mypy.overrides]]
+module = ["mcp.*", "tavily", "yaml"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error"]

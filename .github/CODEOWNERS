@@ -1,0 +1,10 @@
+# Replace handles after the GitHub org exists. contracts/ needs both engineers.
+* @installgate-maintainers
+/contracts/ @installgate-engineer-a @installgate-engineer-b
+/engine/ @installgate-engineer-a
+/validator/ @installgate-engineer-a
+/eval/ @installgate-engineer-a
+/router/ @installgate-engineer-b
+/remediate/ @installgate-engineer-b
+/mcp_server/ @installgate-engineer-b
+/ui/ @installgate-engineer-b
