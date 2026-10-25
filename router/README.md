@@ -1,15 +1,29 @@
 # router/ — Jenny
 
-Stage 2. NVIDIA Nemotron on Nebius Token Factory.
+Stage 2. NVIDIA Nemotron on Nebius Token Factory. Keys from env only.
 
-| File | Build this |
+## T02 (this task)
+
+Resolve model ids from `GET /v1/models`. Smoke-test Nano and log **model ids, tokens, latency**. Never log the API key.
+
+```bash
+cp .env.example .env   # fill NEBIUS_API_KEY
+uv run python -m router.smoke
+```
+
+Unit tests mock HTTP (no live network):
+
+```bash
+uv run --no-sync pytest tests/test_token_factory.py
+```
+
+If a tier is missing from the catalog, that tier is disabled. Catalog/HTTP errors fail closed.
+
+## Later
+
+| File | Task |
 | --- | --- |
-| `token_factory.py` | OpenAI-compatible client. Resolve model ids from `GET /v1/models` at startup |
-| `tiers.py` | Nano extract → Super explain. Ultra only if policy is REVIEW and risk ≥ 0.6 |
-| `tavily.py` | Web search. Trust = untrusted. Never hard evidence |
-| `receipt.py` | Token cost + all-Ultra counterfactual |
-| `prompts/` | Templates. Untrusted text is data, not instructions |
-
-Keys from env only. JSON-schema output. One retry. Fail closed to REVIEW if Token Factory is down.
-
-Tasks: T07, T08.
+| `tiers.py` | T07 Nano → Super; Ultra only if REVIEW and risk ≥ 0.6 |
+| `tavily.py` | T08 untrusted web evidence, never hard |
+| `receipt.py` | T07 cost + all-Ultra counterfactual |
+| `prompts/` | T07 templates; untrusted text is data |

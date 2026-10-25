@@ -22,6 +22,12 @@ cp .env.example .env
 cd ui && pnpm install
 ```
 
+Windows ARM: `tavily-python` needs a Rust build. Skip it for now (T08). If `uv run` tries to rebuild the env, use:
+
+```powershell
+uv run --no-sync pytest tests/test_token_factory.py
+```
+
 Keys go in `.env` only. Never commit secrets.
 
 GitHub board (once, after the repo exists):

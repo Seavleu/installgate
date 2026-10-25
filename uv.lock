@@ -711,7 +711,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
-    { name = "tavily-python" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -725,6 +724,9 @@ dev = [
     { name = "respx" },
     { name = "ruff" },
     { name = "types-pyyaml" },
+]
+tavily = [
+    { name = "tavily-python" },
 ]
 
 [package.metadata]
@@ -742,12 +744,12 @@ requires-dist = [
     { name = "rapidfuzz" },
     { name = "respx", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "tavily-python" },
+    { name = "tavily-python", marker = "extra == 'tavily'" },
     { name = "typer" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "tavily"]
 
 [[package]]
 name = "jiter"

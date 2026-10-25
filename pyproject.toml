@@ -18,7 +18,6 @@ dependencies = [
   "pyyaml",
   "rapidfuzz",
   "openai",
-  "tavily-python",
   "mcp",
   "typer",
 ]
@@ -37,6 +36,7 @@ dev = [
   "pre-commit",
   "types-PyYAML",
 ]
+tavily = ["tavily-python"]  # T08. Skip on Windows ARM (tiktoken needs Rust).
 
 [tool.hatch.build.targets.wheel]
 packages = [
