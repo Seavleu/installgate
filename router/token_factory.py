@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -19,6 +19,7 @@ from openai import (
     AsyncOpenAI,
 )
 from openai.types.chat import ChatCompletionMessage
+from pydantic import BaseModel, ValidationError
 
 ALLOWED_HOST = "api.tokenfactory.nebius.com"
 DEFAULT_BASE = "https://api.tokenfactory.nebius.com/v1/"
@@ -26,6 +27,7 @@ TIMEOUT_S = 15.0
 SMOKE_TIMEOUT_S = 30.0
 
 _log = logging.getLogger("installgate.router")
+TModel = TypeVar("TModel", bound=BaseModel)
 
 _TIER_NEEDLES: dict[str, tuple[str, ...]] = {
     "nano": ("nemotron-3-nano", "nemotron-nano"),
@@ -135,6 +137,72 @@ async def resolve_model_ids(client: AsyncOpenAI | None = None) -> ModelIds:
     finally:
         if own:
             await api.close()
+
+
+@dataclass(frozen=True)
+class StructuredCompletion:
+    prompt_tokens: int
+    completion_tokens: int
+    latency_ms: int
+    schema_valid: bool
+    retries: int
+
+
+async def complete_structured(
+    api: AsyncOpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    schema: type[TModel],
+    extra_body: dict[str, Any] | None = None,
+) -> tuple[TModel, StructuredCompletion]:
+    """One JSON-schema completion. A bad parse is retried once. HTTP errors fail closed.
+
+    shortcut: a rejected first parse is not its own RouteCall. Upgrade if the receipt must
+    count tokens from the failed attempt.
+    """
+    schema_valid = True
+    for attempt in (0, 1):
+        started = time.perf_counter()
+        try:
+            response = await api.chat.completions.create(
+                model=model,
+                messages=cast(Any, messages),
+                response_format=cast(
+                    Any,
+                    {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema.__name__,
+                            "schema": schema.model_json_schema(),
+                            "strict": False,
+                        },
+                    },
+                ),
+                extra_body=extra_body,
+            )
+        except APIStatusError as exc:
+            raise TokenFactoryError(f"completion failed: HTTP {exc.status_code}") from exc
+        except (APIConnectionError, APITimeoutError, APIResponseValidationError) as exc:
+            raise TokenFactoryError("completion failed") from exc
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        usage = response.usage
+        raw = _message_text(response.choices[0].message) if response.choices else ""
+        try:
+            parsed = schema.model_validate_json(raw)
+        except ValidationError:
+            schema_valid = False
+            if attempt == 0:
+                continue
+            raise TokenFactoryError("structured output invalid") from None
+        return parsed, StructuredCompletion(
+            prompt_tokens=int(usage.prompt_tokens) if usage else 0,
+            completion_tokens=int(usage.completion_tokens) if usage else 0,
+            latency_ms=latency_ms,
+            schema_valid=schema_valid,
+            retries=attempt,
+        )
+    raise TokenFactoryError("structured output invalid")
 
 
 def _message_text(message: ChatCompletionMessage) -> str:
