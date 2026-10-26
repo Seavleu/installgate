@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -14,12 +15,18 @@ from router.token_factory import (
     smoke,
 )
 
+
+def _model(model_id: str) -> dict[str, object]:
+    return {"id": model_id, "object": "model", "created": 0, "owned_by": "nvidia"}
+
+
 CATALOG = {
+    "object": "list",
     "data": [
-        {"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"},
-        {"id": "nvidia/nemotron-3-super-120b-a12b"},
-        {"id": "nvidia/Nemotron-3-Ultra-550b-a55b"},
-    ]
+        _model("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"),
+        _model("nvidia/nemotron-3-super-120b-a12b"),
+        _model("nvidia/Nemotron-3-Ultra-550b-a55b"),
+    ],
 }
 BASE = "https://api.tokenfactory.nebius.com/v1/"
 
@@ -49,7 +56,7 @@ async def test_missing_tier_is_disabled() -> None:
     respx.get(f"{BASE}models").mock(
         return_value=httpx.Response(
             200,
-            json={"data": [{"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"}]},
+            json={"object": "list", "data": [_model("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")]},
         )
     )
     ids = await resolve_model_ids()
@@ -82,26 +89,61 @@ async def test_non_allowlisted_host_rejected(monkeypatch: pytest.MonkeyPatch) ->
         await resolve_model_ids()
 
 
+def _completion(model_id: str) -> dict[str, object]:
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": model_id,
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "ok"},
+            }
+        ],
+        "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+    }
+
+
 @respx.mock
 @pytest.mark.asyncio
-async def test_smoke_logs_tokens_and_latency() -> None:
+async def test_smoke_logs_nano_and_super() -> None:
+    nano = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    super_id = "nvidia/nemotron-3-super-120b-a12b"
     respx.get(f"{BASE}models").mock(return_value=httpx.Response(200, json=CATALOG))
-    respx.post(f"{BASE}chat/completions").mock(
+    route = respx.post(f"{BASE}chat/completions").mock(
+        return_value=httpx.Response(200, json=_completion(nano))
+    )
+    results = await smoke()
+    assert [item.model_id for item in results] == [nano, super_id]
+    sent = [json.loads(call.request.content)["model"] for call in route.calls]
+    assert sent == [nano, super_id]
+    for result in results:
+        assert result.failed_closed is False
+        assert result.prompt_tokens == 4
+        assert result.completion_tokens == 2
+        assert result.latency_ms >= 0
+        log = result.as_log()
+        assert log["stage"] == "smoke"
+        assert log["model_ids"]["ultra"] == "nvidia/Nemotron-3-Ultra-550b-a55b"
+        assert "test-key" not in str(log)
+    assert ALLOWED_HOST in BASE
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_smoke_skips_missing_nano() -> None:
+    super_id = "nvidia/nemotron-3-super-120b-a12b"
+    respx.get(f"{BASE}models").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "choices": [{"message": {"content": "ok"}}],
-                "usage": {"prompt_tokens": 4, "completion_tokens": 2},
-            },
+            json={"object": "list", "data": [_model(super_id)]},
         )
     )
-    result = await smoke()
-    assert result.failed_closed is False
-    assert result.model_id == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-    assert result.prompt_tokens == 4
-    assert result.completion_tokens == 2
-    assert result.latency_ms >= 0
-    log = result.as_log()
-    assert log["stage"] == "smoke"
-    assert "test-key" not in str(log)
-    assert ALLOWED_HOST in BASE
+    route = respx.post(f"{BASE}chat/completions").mock(
+        return_value=httpx.Response(200, json=_completion(super_id))
+    )
+    results = await smoke()
+    assert [item.model_id for item in results] == [super_id]
+    assert len(route.calls) == 1
