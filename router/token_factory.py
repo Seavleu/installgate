@@ -7,10 +7,18 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
+from openai import (
+    APIConnectionError,
+    APIResponseValidationError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+)
+from openai.types.chat import ChatCompletionMessage
 
 ALLOWED_HOST = "api.tokenfactory.nebius.com"
 DEFAULT_BASE = "https://api.tokenfactory.nebius.com/v1/"
@@ -71,11 +79,24 @@ def _base_url() -> str:
     return raw
 
 
-def _headers() -> dict[str, str]:
+def _api_key() -> str:
     key = os.environ.get("NEBIUS_API_KEY", "").strip()
     if not key:
         raise TokenFactoryError("NEBIUS_API_KEY is missing")
-    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    return key
+
+
+def _openai(*, timeout: float) -> AsyncOpenAI:
+    """OpenAI SDK pointed at Token Factory. Transport stays httpx so the host allowlist holds."""
+    # The SDK types this as its vendored client; the runtime also accepts httpx.AsyncClient.
+    http = cast(Any, httpx.AsyncClient(timeout=timeout))
+    return AsyncOpenAI(
+        base_url=_base_url(),
+        api_key=_api_key(),
+        timeout=timeout,
+        max_retries=0,
+        http_client=http,
+    )
 
 
 def _pick(catalog: list[str], tier: str) -> str | None:
@@ -93,20 +114,13 @@ def _pick(catalog: list[str], tier: str) -> str | None:
     return None
 
 
-async def resolve_model_ids(client: httpx.AsyncClient | None = None) -> ModelIds:
+async def resolve_model_ids(client: AsyncOpenAI | None = None) -> ModelIds:
     """GET /v1/models. Missing tiers stay None (disabled). Catalog errors fail closed."""
-    base = _base_url()
     own = client is None
-    http = client or httpx.AsyncClient(timeout=TIMEOUT_S)
+    api = client or _openai(timeout=TIMEOUT_S)
     try:
-        response = await http.get(f"{base}models", headers=_headers())
-        if response.status_code >= 400:
-            raise TokenFactoryError(f"models list failed: HTTP {response.status_code}")
-        payload = response.json()
-        rows = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(rows, list):
-            raise TokenFactoryError("models list missing data")
-        catalog = [str(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
+        page = await api.models.list()
+        catalog = [item.id for item in page.data]
         return ModelIds(
             nano=_pick(catalog, "nano"),
             super=_pick(catalog, "super"),
@@ -114,65 +128,69 @@ async def resolve_model_ids(client: httpx.AsyncClient | None = None) -> ModelIds
         )
     except TokenFactoryError:
         raise
-    except (httpx.HTTPError, ValueError, KeyError) as exc:
+    except APIStatusError as exc:
+        raise TokenFactoryError(f"models list failed: HTTP {exc.status_code}") from exc
+    except (APIConnectionError, APITimeoutError, APIResponseValidationError) as exc:
         raise TokenFactoryError("models list failed") from exc
     finally:
         if own:
-            await http.aclose()
+            await api.close()
 
 
-def _message_text(choice: dict[str, Any]) -> str:
-    message = choice.get("message") or {}
-    content = message.get("content")
+def _message_text(message: ChatCompletionMessage) -> str:
+    content = message.content
     if isinstance(content, str) and content.strip():
         return content
-    reasoning = message.get("reasoning_content")
+    extra = message.model_extra or {}
+    reasoning = extra.get("reasoning_content")
     if isinstance(reasoning, str):
         return reasoning
     return ""
 
 
-async def smoke(client: httpx.AsyncClient | None = None) -> SmokeResult:
-    """One cheap Nano ping. Logs model ids, tokens, latency. Never logs the API key."""
-    ids = await resolve_model_ids(client)
-    model = ids.nano or ids.super
-    if model is None:
-        raise TokenFactoryError("no Nano or Super model id in catalog")
-    base = _base_url()
+async def smoke(client: AsyncOpenAI | None = None) -> list[SmokeResult]:
+    """Cheap Nano and Super pings. Logs model ids, tokens, latency. Never logs the API key.
+
+    A tier missing from the catalog is skipped. Neither tier present fails closed.
+    Ultra is not pinged here.
+    """
     own = client is None
-    http = client or httpx.AsyncClient(timeout=SMOKE_TIMEOUT_S)
-    body: dict[str, Any] = {
-        "model": model,
-        "messages": [{"role": "user", "content": "Reply with the single word pong."}],
-        "max_tokens": 8,
-        # Flattened OpenAI extra_body; Nano should not emit a thinking block.
-        "chat_template_kwargs": {"enable_thinking": False},
-    }
-    started = time.perf_counter()
+    api = client or _openai(timeout=SMOKE_TIMEOUT_S)
     try:
-        response = await http.post(f"{base}chat/completions", headers=_headers(), json=body)
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        if response.status_code >= 400:
-            raise TokenFactoryError(f"smoke completion failed: HTTP {response.status_code}")
-        payload = response.json()
-        usage = payload.get("usage") or {}
-        choices = payload.get("choices") or []
-        if choices:
-            _message_text(choices[0])
-        result = SmokeResult(
-            model_id=model,
-            prompt_tokens=int(usage.get("prompt_tokens") or 0),
-            completion_tokens=int(usage.get("completion_tokens") or 0),
-            latency_ms=latency_ms,
-            failed_closed=False,
-            model_ids=ids,
-        )
-        _log.info(json.dumps(result.as_log(), separators=(",", ":")))
-        return result
+        ids = await resolve_model_ids(api)
+        models = [model for model in (ids.nano, ids.super) if model]
+        if not models:
+            raise TokenFactoryError("no Nano or Super model id in catalog")
+        results: list[SmokeResult] = []
+        for model in models:
+            started = time.perf_counter()
+            response = await api.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "Reply with the single word pong."}],
+                max_tokens=8,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            if response.choices:
+                _message_text(response.choices[0].message)
+            usage = response.usage
+            result = SmokeResult(
+                model_id=model,
+                prompt_tokens=int(usage.prompt_tokens) if usage else 0,
+                completion_tokens=int(usage.completion_tokens) if usage else 0,
+                latency_ms=latency_ms,
+                failed_closed=False,
+                model_ids=ids,
+            )
+            _log.info(json.dumps(result.as_log(), separators=(",", ":")))
+            results.append(result)
+        return results
     except TokenFactoryError:
         raise
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
+    except APIStatusError as exc:
+        raise TokenFactoryError(f"smoke completion failed: HTTP {exc.status_code}") from exc
+    except (APIConnectionError, APITimeoutError, APIResponseValidationError) as exc:
         raise TokenFactoryError("smoke completion failed") from exc
     finally:
         if own:
-            await http.aclose()
+            await api.close()

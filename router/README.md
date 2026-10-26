@@ -4,7 +4,7 @@ Stage 2. NVIDIA Nemotron on Nebius Token Factory. Keys from env only.
 
 ## T02 (this task)
 
-Resolve model ids from `GET /v1/models`. Smoke-test Nano and log **model ids, tokens, latency**. Never log the API key.
+Resolve model ids from `GET /v1/models` through the OpenAI SDK (`AsyncOpenAI` on `NEBIUS_BASE_URL`). Smoke-test Nano and Super and log **model ids, tokens, latency** for each. A missing tier is skipped. Never log the API key.
 
 ```bash
 cp .env.example .env   # fill NEBIUS_API_KEY
