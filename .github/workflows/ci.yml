@@ -36,7 +36,6 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
-    if: hashFiles('ui/package.json') != ''
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
