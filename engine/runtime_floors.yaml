@@ -1,1 +1,60 @@
-# Kate. Patched runtime floors. See README.md.
+# Patched runtime floors for Dockerfile base images (rule P3).
+#
+# UNVERIFIED — every number below is a placeholder. Confirm each against the
+# vendor's own release notes (php.net, nodejs.org, python.org), not a secondary
+# report, before the demo. The CVE numbers go in the video, so a wrong floor is
+# a public claim (risk R6).
+#
+# Floors are per release branch, not per image. A single floor cannot express a
+# project that patches several branches in parallel: with one floor of 8.2.35,
+# the tag 8.3.0 compares as greater and would pass even though its own branch is
+# unpatched. Each branch therefore carries its own floor.
+#
+# A tag whose branch is not listed here is NOT comparable. It is never a BLOCK —
+# we have no evidence the runtime is unpatched, only an absence of knowledge.
+# Such a tag, a floating tag (`latest`, `bookworm`) and a digest-only reference
+# all resolve to REVIEW (FR-09).
+snapshot_date: "2026-10-25"
+verified: false
+source: "placeholder — replace with vendor release notes and record the URL here"
+
+images:
+  php:
+    branches:
+      "8.2": "8.2.35"
+      "8.3": "8.3.36"
+      "8.4": "8.4.27"
+      "8.5": "8.5.12"
+  python:
+    branches:
+      "3.10": "3.10.14"
+      "3.11": "3.11.9"
+      "3.12": "3.12.4"
+      "3.13": "3.13.0"
+  node:
+    branches:
+      "18": "18.20.4"
+      "20": "20.15.0"
+      "22": "22.4.1"
+  nginx:
+    branches:
+      "1.26": "1.26.1"
+      "1.27": "1.27.0"
+  postgres:
+    branches:
+      "15": "15.7"
+      "16": "16.3"
+  redis:
+    branches:
+      "7.2": "7.2.5"
+  debian:
+    branches:
+      "12": "12.6"
+  ubuntu:
+    branches:
+      "22.04": "22.04"
+      "24.04": "24.04"
+  alpine:
+    branches:
+      "3.19": "3.19.2"
+      "3.20": "3.20.0"

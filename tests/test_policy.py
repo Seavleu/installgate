@@ -1,0 +1,147 @@
+"""Policy P1-P9: the strictest match wins, and BLOCK needs hard deterministic evidence."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+from contracts.contracts import Ecosystem, EvidenceKind, TargetRef, Verdict
+from engine import stage1
+from engine.evidence import EvidenceBuilder
+from engine.policy import evaluate, risk_score
+
+NOW = datetime(2026, 10, 26, tzinfo=UTC)
+PINNED = TargetRef(
+    ecosystem=Ecosystem.PYPI, name="requests", version="2.31.0", artifact_sha256="a" * 64
+)
+UNPINNED = TargetRef(ecosystem=Ecosystem.PYPI, name="requests")
+
+
+def ev(kind: EvidenceKind, severity: str, trust: str = "deterministic", target=PINNED):
+    return EvidenceBuilder().build(
+        kind, source="pypi", trust=trust, severity=severity, target=target, fetched_at=NOW
+    )
+
+
+def test_p9_clean_pinned_target_is_allowed():
+    decision = evaluate(PINNED, [])
+    assert decision.verdict is Verdict.ALLOW
+    assert "P9" in decision.matched_rules
+
+
+def test_clean_but_unpinned_is_review_not_allow():
+    # TOCTOU: an unpinned ALLOW can resolve to a different artefact at install time.
+    assert evaluate(UNPINNED, []).verdict is Verdict.REVIEW
+
+
+def test_p1_missing_package_blocks():
+    decision = evaluate(PINNED, [ev(EvidenceKind.NOT_FOUND, "hard")])
+    assert decision.verdict is Verdict.BLOCK
+    assert "P1" in decision.matched_rules
+
+
+def test_p2_osv_malicious_blocks():
+    assert evaluate(PINNED, [ev(EvidenceKind.OSV_MALICIOUS, "hard")]).verdict is Verdict.BLOCK
+
+
+def test_p3_runtime_below_floor_blocks():
+    docker = TargetRef(ecosystem=Ecosystem.DOCKER, name="php", version="8.1.0")
+    evidence = [ev(EvidenceKind.RUNTIME_BELOW_FLOOR, "hard", target=docker)]
+    assert evaluate(docker, evidence).verdict is Verdict.BLOCK
+
+
+def test_p4_typosquat_on_new_project_blocks():
+    evidence = [
+        ev(EvidenceKind.TYPOSQUAT, "soft"),
+        ev(EvidenceKind.TYPOSQUAT_NEW_PROJECT, "hard"),
+    ]
+    decision = evaluate(PINNED, evidence)
+    assert decision.verdict is Verdict.BLOCK
+    assert {"P4", "P5"} <= set(decision.matched_rules)
+
+
+def test_p5_typosquat_alone_only_reviews():
+    assert evaluate(PINNED, [ev(EvidenceKind.TYPOSQUAT, "soft")]).verdict is Verdict.REVIEW
+
+
+def test_p6_release_age_alone_never_blocks():
+    evidence = [ev(EvidenceKind.NEW_PROJECT, "soft"), ev(EvidenceKind.NEW_RELEASE, "soft")]
+    assert evaluate(PINNED, evidence).verdict is Verdict.REVIEW
+
+
+def test_p7_hf_pickle_reviews():
+    assert evaluate(PINNED, [ev(EvidenceKind.HF_PICKLE, "soft")]).verdict is Verdict.REVIEW
+
+
+def test_p8_maintainer_change_reviews():
+    assert evaluate(PINNED, [ev(EvidenceKind.MAINTAINER_CHANGE, "soft")]).verdict is Verdict.REVIEW
+
+
+def test_strictest_match_wins_over_softer_rules():
+    evidence = [
+        ev(EvidenceKind.NEW_PROJECT, "soft"),
+        ev(EvidenceKind.HF_PICKLE, "soft"),
+        ev(EvidenceKind.OSV_MALICIOUS, "hard"),
+    ]
+    assert evaluate(PINNED, evidence).verdict is Verdict.BLOCK
+
+
+def test_block_without_hard_evidence_degrades_to_review():
+    # Untrusted web evidence can never carry a BLOCK on its own.
+    soft_web = ev(EvidenceKind.WEB_REPORT, "soft", trust="retrieved_untrusted")
+    assert evaluate(PINNED, [soft_web]).verdict is Verdict.REVIEW
+
+
+def test_info_evidence_still_blocks_a_clean_allow():
+    # P9 requires zero findings of any severity, info included.
+    assert evaluate(PINNED, [ev(EvidenceKind.HF_SAFETENSORS_SIBLING, "info")]).verdict is (
+        Verdict.REVIEW
+    )
+
+
+@pytest.mark.parametrize(
+    "severities,expected",
+    [([], 0.0), (["info"], 0.0), (["soft"], 0.25), (["soft", "soft"], 0.5), (["hard"], 1.0)],
+)
+def test_risk_score_scales_with_severity(severities, expected):
+    evidence = [ev(EvidenceKind.NEW_PROJECT, s) for s in severities]
+    assert risk_score(evidence) == expected
+
+
+def test_p9_regression_clean_pinned_package_reaches_allow_end_to_end():
+    """Regression: evaluate() once seeded the verdict with the REVIEW default and
+    only ever raised it, so P9 could match and still return REVIEW — every clean
+    install would have asked for human review. Fixed in 3eab258."""
+    result = stage1.run(
+        TargetRef(ecosystem=Ecosystem.PYPI, name="requests"),
+        registry_facts={
+            "exists": True,
+            "latest_version": "2.31.0",
+            "latest_sha256": "c" * 64,
+            "first_upload": "2015-01-01T00:00:00+00:00",
+            "latest_upload": "2026-01-01T00:00:00+00:00",
+            "maintainers": ["core"],
+        },
+        osv_facts={"malicious": False, "mal_ids": []},
+        now=NOW,
+    )
+    assert result.verdict is Verdict.ALLOW
+    assert result.decision.matched_rules == ("P9",)
+    assert result.evidence == []
+
+
+def test_unlisted_runtime_branch_blocks_allow_without_blocking_the_install():
+    # FR-09: no floor for the branch is absence of knowledge, so REVIEW, not BLOCK.
+    pinned_image = TargetRef(
+        ecosystem=Ecosystem.DOCKER, name="php", version="8.9.1", artifact_sha256="d" * 64
+    )
+    decision = evaluate(pinned_image, [], runtime_comparable=False)
+    assert decision.verdict is Verdict.REVIEW
+    assert "P9" not in decision.matched_rules
+
+
+def test_comparable_runtime_still_reaches_allow():
+    pinned_image = TargetRef(
+        ecosystem=Ecosystem.DOCKER, name="php", version="8.2.35", artifact_sha256="d" * 64
+    )
+    assert evaluate(pinned_image, [], runtime_comparable=True).verdict is Verdict.ALLOW
