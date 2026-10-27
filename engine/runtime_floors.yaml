@@ -1,1 +1,19 @@
-# Kate. Patched runtime floors. See README.md.
+# Patched runtime floors for Dockerfile base images (rule P3).
+# A base image tag below its floor is a BLOCK: the runtime carries a known
+# unpatched CVE. Dated snapshot — re-verify against upstream before the demo.
+#
+# Keys are the image name as written after FROM, without registry or tag.
+snapshot_date: "2026-10-25"
+floors:
+  php: "8.2.20"
+  python: "3.11.9"
+  node: "20.15.0"
+  ruby: "3.2.4"
+  golang: "1.22.5"
+  openjdk: "21.0.4"
+  nginx: "1.27.0"
+  postgres: "16.3"
+  redis: "7.2.5"
+  debian: "12.6"
+  ubuntu: "22.04"
+  alpine: "3.20"

@@ -1,1 +1,74 @@
-# Kate. Rules P1–P9. See README.md.
+# InstallGate policy. Rules P1-P9; every rule is evaluated and the strictest match wins.
+#
+# A rule fires when ANY of its evidence kinds is present (plus `requires_all` when set).
+# BLOCK rules may only cite hard, deterministic evidence — the validator re-checks this.
+version: "2026-10-26.1"
+
+rules:
+  - id: P1
+    description: Package does not exist in the registry
+    verdict: BLOCK
+    any_of: [not_found]
+    rationale: >
+      A name that resolves to nothing today can be registered by an attacker tomorrow.
+      Hallucinated names are the entry point for slopsquatting.
+
+  - id: P2
+    description: OSV holds a MAL- record for this package
+    verdict: BLOCK
+    any_of: [osv_malicious]
+    rationale: A confirmed malicious-package advisory. The strongest signal available.
+
+  - id: P3
+    description: Dockerfile base tag is below its patched floor
+    verdict: BLOCK
+    any_of: [runtime_below_floor]
+    rationale: >
+      The runtime ships a known unpatched CVE (e.g. the October 2026 PHP RCEs).
+      Floors are listed in runtime_floors.yaml.
+
+  - id: P4
+    description: Typosquat of a popular name on a project only days old
+    verdict: BLOCK
+    any_of: [typosquat_new_project]
+    rationale: >
+      Derived rule. Near-miss name plus a first upload under 7 days is the
+      typosquat-campaign signature. Neither half blocks on its own.
+
+  - id: P5
+    description: Typosquat of a popular name
+    verdict: REVIEW
+    any_of: [typosquat]
+    rationale: Could be a deliberate fork or a genuine near-miss. A human decides.
+
+  - id: P6
+    description: First upload or latest release under 30 days old
+    verdict: REVIEW
+    any_of: [new_project, new_release]
+    rationale: Release age alone never blocks; it only raises a review.
+
+  - id: P7
+    description: Hugging Face repo serving pickle weights
+    verdict: REVIEW
+    any_of: [hf_pickle]
+    rationale: >
+      Loading a pickle executes code. A safetensors sibling (hf_safetensors_sibling)
+      is recorded as info and is what the substitute stage will prefer.
+
+  - id: P8
+    description: Maintainer set changed alongside a recent release
+    verdict: REVIEW
+    any_of: [maintainer_change]
+    rationale: Account takeover shows up as a new maintainer shipping quickly.
+
+  - id: P9
+    description: No evidence of any severity and the artefact is pinned
+    verdict: ALLOW
+    requires_no_evidence: true
+    requires_pinned: true
+    rationale: >
+      An unpinned ALLOW is meaningless: the resolved artefact can change between
+      the check and the install (TOCTOU). Unpinned with no findings is a REVIEW.
+
+# Fallback when no rule matched: an unpinned target with no findings.
+default_verdict: REVIEW
