@@ -15,7 +15,11 @@ What it does NOT do:
   * install, import or execute anything — it reads the PyPI JSON API only;
   * invent a label — if a hallucinated name turns out to exist, the case is
     flagged for a human, not silently relabelled or deleted;
-  * touch the malicious cases — those come from OSV via fetch_osv_malicious.py.
+  * touch a non-PyPI case. Hugging Face and container cases live in the same
+    files and would otherwise be handed another ecosystem's facts;
+  * touch a simulated malicious case. Those describe a package as it was before
+    the registry removed it; checking them live would overwrite the very state
+    they exist to preserve.
 """
 
 from __future__ import annotations
@@ -28,8 +32,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from contracts.contracts import TargetRef
 from engine.clients import HEADERS, TIMEOUT, UpstreamError, get_json
 from engine.clients.pypi import project_url, summarise
+from engine.parsers import parse_pip
 
 CASES_DIR = Path(__file__).parent / "cases"
 
@@ -45,9 +51,35 @@ class LabelConflict(Exception):
     """The registry disagrees with the label. A human decides, not this script."""
 
 
-async def fetch_pypi(client: httpx.AsyncClient, name: str) -> dict[str, Any]:
-    """Registry facts for one package, or {'exists': False} on a 404."""
-    body = await get_json(client, project_url(name), allow_404=True)
+def target_of(case: dict[str, Any]) -> TargetRef:
+    """Parse the case command with the real parser.
+
+    Splitting on whitespace would hand `uvicorn[standard]==0.30.1` to the API
+    verbatim and quietly 404. The parser already knows how to read a command.
+    """
+    return parse_pip(case["command"])[0]
+
+
+def is_pypi(case: dict[str, Any]) -> bool:
+    return case.get("ecosystem") == "pypi"
+
+
+async def fetch_pypi(
+    client: httpx.AsyncClient, name: str, version: str | None = None
+) -> dict[str, Any]:
+    """Registry facts for one package, or {'exists': False} on a 404.
+
+    A pinned case asks for that exact release: `/pypi/{name}/{version}/json`.
+    Reading the project-level document instead would stamp the case with the
+    dates and hash of whatever shipped most recently, which is not the artefact
+    the case pins.
+    """
+    url = (
+        f"{project_url(name).removesuffix('/json')}/{version}/json"
+        if version
+        else project_url(name)
+    )
+    body = await get_json(client, url, allow_404=True)
     return summarise(body)
 
 
@@ -55,7 +87,7 @@ async def verify_hallucinated(
     client: httpx.AsyncClient, case: dict[str, Any], stamp: str
 ) -> tuple[dict[str, Any], str | None]:
     """A hallucinated case must still 404. If it resolves, somebody registered it."""
-    name = case["command"].split()[-1]
+    name = target_of(case).name
     facts = await fetch_pypi(client, name)
     if facts.get("exists"):
         # Do not relabel automatically: a name that appeared since the case was
@@ -81,12 +113,14 @@ async def verify_benign(
     actively maintained packages and push some benign cases to REVIEW — that is
     the honest result, and the number the 7/30-day thresholds get tuned against.
     """
-    name = case["command"].split()[-1].split("==")[0]
-    facts = await fetch_pypi(client, name)
+    target = target_of(case)
+    facts = await fetch_pypi(client, target.name, target.version)
     if not facts.get("exists"):
         return case, (
-            f"{case['id']}: {name!r} does not resolve on PyPI — a benign case "
-            "should not 404. Check the spelling before the next run."
+            f"{case['id']}: {target.name!r}"
+            + (f" at {target.version}" if target.version else "")
+            + " does not resolve on PyPI — a benign case should not 404. "
+            "Check the spelling or the pinned version before the next run."
         )
     case["facts"] = facts
     case["verified_at"] = stamp
@@ -95,9 +129,45 @@ async def verify_benign(
     return case, None
 
 
+async def verify_malicious(
+    client: httpx.AsyncClient, case: dict[str, Any], stamp: str
+) -> tuple[dict[str, Any], str | None]:
+    """Confirm the live malicious cases really are gone from the registry.
+
+    Only `registry_state == "live_unverified"` is touched. A simulated case
+    deliberately describes the package before removal so that P2 is the rule
+    under test; overwriting it with a 404 would silently turn it back into a P1
+    case and leave the OSV path untested again.
+
+    A live case that still resolves is not an error — the package may simply not
+    have been pulled yet. It is reported, because such a case tests P2 rather
+    than P1 and the report splits recall along exactly that line.
+    """
+    if case.get("registry_state") != "live_unverified":
+        return case, None
+
+    target = target_of(case)
+    facts = await fetch_pypi(client, target.name)
+    case["facts"] = facts
+    case["verified_at"] = stamp
+    case["verified_source"] = True
+    case["verified_by"] = "pypi_json_api"
+
+    if facts.get("exists"):
+        case["registry_state"] = "live_present"
+        return case, (
+            f"{case['id']}: {target.name!r} is still on PyPI. The case now tests "
+            "P2 (osv_malicious) rather than P1 (not_found); the report counts it "
+            "in the live group."
+        )
+    case["registry_state"] = "live_absent"
+    return case, None
+
+
 VERIFIERS = {
     "hallucinated": verify_hallucinated,
     "benign": verify_benign,
+    "malicious": verify_malicious,
 }
 
 
@@ -127,9 +197,19 @@ async def run(labels: list[str], dry_run: bool, concurrency: int) -> int:
                 continue
             rows = load(path)
             verifier = VERIFIERS[label]
+            # Only PyPI cases: a Hugging Face repo id or a container tag sent to
+            # the PyPI API would 404 and the case would be stamped with the facts
+            # of a package that does not exist.
+            targets = [r for r in rows if is_pypi(r)]
+            if label == "malicious":
+                targets = [r for r in targets if r.get("registry_state") == "live_unverified"]
+            skipped = len(rows) - len(targets)
 
             if dry_run:
-                print(f"{label}: would GET {len(rows)} records from pypi.org")
+                print(
+                    f"{label}: would GET {len(targets)} record(s) from pypi.org"
+                    + (f", skipping {skipped} non-PyPI or simulated" if skipped else "")
+                )
                 continue
 
             async def one(case: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
@@ -139,10 +219,14 @@ async def run(labels: list[str], dry_run: bool, concurrency: int) -> int:
                     except UpstreamError as exc:
                         return case, f"{case['id']}: upstream error, label left as-is ({exc})"
 
-            done = await asyncio.gather(*(one(case) for case in rows))
-            save(path, [case for case, _ in done])
+            done = await asyncio.gather(*(one(case) for case in targets))
+            updated = {id(case): case for case, _ in done}
+            save(path, [updated.get(id(row), row) for row in rows])
             warnings.extend(w for _, w in done if w)
-            print(f"{label}: {len(rows)} cases verified, stamped {stamp}")
+            print(
+                f"{label}: {len(targets)} case(s) verified, stamped {stamp}"
+                + (f"; {skipped} left untouched" if skipped else "")
+            )
 
     if warnings:
         print(f"\n{len(warnings)} case(s) need a human:")
