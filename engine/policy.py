@@ -28,6 +28,7 @@ class Rule:
     any_of: frozenset[EvidenceKind]
     requires_no_evidence: bool
     requires_pinned: bool
+    requires_runtime_comparable: bool
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ def _parse_rule(raw: dict[str, Any]) -> Rule:
         any_of=kinds,
         requires_no_evidence=bool(raw.get("requires_no_evidence")),
         requires_pinned=bool(raw.get("requires_pinned")),
+        requires_runtime_comparable=bool(raw.get("requires_runtime_comparable")),
     )
 
 
@@ -93,9 +95,17 @@ def is_pinned(target: TargetRef) -> bool:
 
 
 def evaluate(
-    target: TargetRef, evidence: list[Evidence], policy_path: str | None = None
+    target: TargetRef,
+    evidence: list[Evidence],
+    policy_path: str | None = None,
+    runtime_comparable: bool = True,
 ) -> PolicyDecision:
-    """Evaluate every rule; the strictest match sets the verdict."""
+    """Evaluate every rule; the strictest match sets the verdict.
+
+    `runtime_comparable` is False when a container tag could not be placed on a
+    known release branch. That blocks ALLOW without producing a BLOCK: we lack
+    knowledge, not evidence (FR-09).
+    """
     rules, version, default = load_policy(policy_path)
     kinds = {e.kind for e in evidence}
     pinned = is_pinned(target)
@@ -105,8 +115,11 @@ def evaluate(
 
     for rule in rules:
         if rule.requires_no_evidence:
-            # P9: a clean ALLOW needs zero findings of any severity and a pinned artefact.
+            # P9: a clean ALLOW needs zero findings of any severity, a pinned
+            # artefact, and a runtime we could actually place against a floor.
             if evidence or (rule.requires_pinned and not pinned):
+                continue
+            if rule.requires_runtime_comparable and not runtime_comparable:
                 continue
         elif not (rule.any_of & kinds):
             continue

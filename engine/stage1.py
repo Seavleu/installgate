@@ -22,6 +22,8 @@ class Stage1Result:
     target: TargetRef
     evidence: list[Evidence]
     decision: PolicyDecision
+    # Why a container tag could not be judged, when it could not be (FR-09).
+    runtime_note: str | None = None
 
     @property
     def verdict(self) -> Verdict:
@@ -60,8 +62,12 @@ def gather_evidence(
     known_maintainers: list[str] | None = None,
     now: datetime | None = None,
     builder: EvidenceBuilder | None = None,
-) -> list[Evidence]:
-    """Run every applicable check in a fixed order so EV ids are reproducible."""
+) -> tuple[list[Evidence], str | None]:
+    """Run every applicable check in a fixed order so EV ids are reproducible.
+
+    Returns the evidence and, when a container tag could not be compared against
+    a floor, the reason why.
+    """
     now = now or datetime.now(UTC)
     builder = builder or EvidenceBuilder()
     evidence: list[Evidence] = []
@@ -69,7 +75,7 @@ def gather_evidence(
     missing = checks.check_exists(target, registry_facts, builder)
     if missing is not None:
         # Nothing else is knowable about a package that is not there.
-        return [missing]
+        return [missing], None
 
     if osv_facts:
         malicious = checks.check_osv_malicious(target, osv_facts, builder)
@@ -88,12 +94,15 @@ def gather_evidence(
     if target.ecosystem is Ecosystem.HUGGINGFACE:
         evidence.extend(checks.check_hf_format(target, registry_facts, builder))
 
+    runtime_note: str | None = None
     if target.ecosystem is Ecosystem.DOCKER:
         floor = checks.check_runtime_floor(target, builder)
-        if floor is not None:
-            evidence.append(floor)
+        if floor.evidence is not None:
+            evidence.append(floor.evidence)
+        if not floor.comparable:
+            runtime_note = floor.reason
 
-    return evidence
+    return evidence, runtime_note
 
 
 def run(
@@ -106,8 +115,15 @@ def run(
 ) -> Stage1Result:
     """The whole deterministic stage: enrich, gather evidence, apply policy."""
     enriched = enrich_target(target, registry_facts)
-    evidence = gather_evidence(
+    evidence, runtime_note = gather_evidence(
         enriched, registry_facts, osv_facts, known_maintainers=known_maintainers, now=now
     )
-    decision = evaluate(enriched, evidence, policy_path=policy_path)
-    return Stage1Result(target=enriched, evidence=evidence, decision=decision)
+    decision = evaluate(
+        enriched,
+        evidence,
+        policy_path=policy_path,
+        runtime_comparable=runtime_note is None,
+    )
+    return Stage1Result(
+        target=enriched, evidence=evidence, decision=decision, runtime_note=runtime_note
+    )

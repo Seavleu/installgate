@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -72,12 +73,21 @@ def load_top_names(ecosystem: Ecosystem) -> tuple[str, ...]:
 
 
 @functools.lru_cache(maxsize=1)
-def load_runtime_floors() -> dict[str, str]:
+def load_runtime_floors() -> dict[str, dict[str, str]]:
+    """Image -> release branch -> patched floor.
+
+    A single floor per image cannot describe a project that patches several
+    branches at once, so floors are keyed by branch (`"8.2"`, `"20"`).
+    """
     if not FLOORS_PATH.exists():
         return {}
     data = yaml.safe_load(FLOORS_PATH.read_text(encoding="utf-8")) or {}
-    floors = data.get("floors") or {}
-    return {str(k): str(v) for k, v in floors.items()}
+    images = data.get("images") or {}
+    out: dict[str, dict[str, str]] = {}
+    for image, spec in images.items():
+        branches = (spec or {}).get("branches") or {}
+        out[str(image)] = {str(b): str(f) for b, f in branches.items()}
+    return out
 
 
 def check_exists(
@@ -334,36 +344,94 @@ def _version_tuple(version: str) -> tuple[int, ...] | None:
     return tuple(numbers) or None
 
 
-def check_runtime_floor(
-    target: TargetRef, builder: EvidenceBuilder, floors: dict[str, str] | None = None
-) -> Evidence | None:
-    """P3: a Dockerfile base tag below its patched floor.
+@dataclass(frozen=True)
+class RuntimeFloorResult:
+    """Outcome of the base-tag check.
 
-    Compared only on the parts the floor specifies, so a floor of `3.11.9` accepts
-    `3.11.9-slim` and rejects `3.11.8`. A tag with no numeric version (`latest`,
-    `bookworm`) is not comparable and is left to the other rules.
+    `comparable` is the half that matters for FR-09: when we cannot place a tag
+    on a known release branch we have an absence of knowledge, not evidence of an
+    unpatched runtime. The caller must turn that into REVIEW, never BLOCK.
     """
-    if target.ecosystem != Ecosystem.DOCKER or not target.version:
-        return None
+
+    comparable: bool
+    evidence: Evidence | None
+    reason: str
+    branch: str | None = None
+    floor: str | None = None
+
+
+def _match_branch(tag: tuple[int, ...], branches: dict[str, str]) -> tuple[str, str] | None:
+    """Longest branch whose version tuple prefixes the tag. `8.2.20` -> branch `8.2`."""
+    best: tuple[str, str] | None = None
+    best_len = -1
+    for branch, floor in branches.items():
+        prefix = _version_tuple(branch)
+        if prefix is None or len(prefix) > len(tag):
+            continue
+        if tag[: len(prefix)] == prefix and len(prefix) > best_len:
+            best, best_len = (branch, floor), len(prefix)
+    return best
+
+
+def check_runtime_floor(
+    target: TargetRef,
+    builder: EvidenceBuilder,
+    floors: dict[str, dict[str, str]] | None = None,
+) -> RuntimeFloorResult:
+    """P3: a Dockerfile base tag below the patched floor of its own release branch.
+
+    BLOCK is reserved for a tag we can place on a known branch and show to be
+    behind that branch's floor. Everything else — an image we hold no floors for,
+    a branch not in the table, a floating tag (`latest`, `bookworm`), or a
+    digest-only reference with no tag — is not comparable and resolves to REVIEW
+    (FR-09).
+    """
+    if target.ecosystem != Ecosystem.DOCKER:
+        return RuntimeFloorResult(True, None, "not a container image")
+
     floors = floors if floors is not None else load_runtime_floors()
     image = target.name.rsplit("/", 1)[-1].lower()
-    floor = floors.get(image)
-    if floor is None:
-        return None
+    branches = floors.get(image)
+
+    if not target.version:
+        return RuntimeFloorResult(
+            False, None, "digest-only reference: no tag to compare against a floor"
+        )
+    if not branches:
+        return RuntimeFloorResult(False, None, f"no patched floors recorded for {image!r}")
 
     actual = _version_tuple(target.version)
+    if actual is None:
+        return RuntimeFloorResult(
+            False, None, f"floating tag {target.version!r} carries no comparable version"
+        )
+
+    matched = _match_branch(actual, branches)
+    if matched is None:
+        return RuntimeFloorResult(
+            False, None, f"{image} {target.version!r} is on a branch with no recorded floor"
+        )
+
+    branch, floor = matched
     required = _version_tuple(floor)
-    if actual is None or required is None:
-        return None
+    if required is None:
+        return RuntimeFloorResult(False, None, f"floor {floor!r} for branch {branch} is unusable")
+
     depth = min(len(actual), len(required))
     if actual[:depth] >= required[:depth]:
-        return None
+        return RuntimeFloorResult(True, None, "at or above the branch floor", branch, floor)
 
-    return builder.build(
+    evidence = builder.build(
         EvidenceKind.RUNTIME_BELOW_FLOOR,
         source="docker_registry",
         trust="deterministic",
         severity="hard",
         target=target,
-        observed={"image": image, "tag": target.version, "patched_floor": floor},
+        observed={
+            "image": image,
+            "tag": target.version,
+            "branch": branch,
+            "patched_floor": floor,
+        },
     )
+    return RuntimeFloorResult(True, evidence, "below the branch floor", branch, floor)

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 from contracts.contracts import Ecosystem, EvidenceKind, TargetRef, Verdict
+from engine import stage1
 from engine.evidence import EvidenceBuilder
 from engine.policy import evaluate, risk_score
 
@@ -105,3 +106,42 @@ def test_info_evidence_still_blocks_a_clean_allow():
 def test_risk_score_scales_with_severity(severities, expected):
     evidence = [ev(EvidenceKind.NEW_PROJECT, s) for s in severities]
     assert risk_score(evidence) == expected
+
+
+def test_p9_regression_clean_pinned_package_reaches_allow_end_to_end():
+    """Regression: evaluate() once seeded the verdict with the REVIEW default and
+    only ever raised it, so P9 could match and still return REVIEW — every clean
+    install would have asked for human review. Fixed in 3eab258."""
+    result = stage1.run(
+        TargetRef(ecosystem=Ecosystem.PYPI, name="requests"),
+        registry_facts={
+            "exists": True,
+            "latest_version": "2.31.0",
+            "latest_sha256": "c" * 64,
+            "first_upload": "2015-01-01T00:00:00+00:00",
+            "latest_upload": "2026-01-01T00:00:00+00:00",
+            "maintainers": ["core"],
+        },
+        osv_facts={"malicious": False, "mal_ids": []},
+        now=NOW,
+    )
+    assert result.verdict is Verdict.ALLOW
+    assert result.decision.matched_rules == ("P9",)
+    assert result.evidence == []
+
+
+def test_unlisted_runtime_branch_blocks_allow_without_blocking_the_install():
+    # FR-09: no floor for the branch is absence of knowledge, so REVIEW, not BLOCK.
+    pinned_image = TargetRef(
+        ecosystem=Ecosystem.DOCKER, name="php", version="8.9.1", artifact_sha256="d" * 64
+    )
+    decision = evaluate(pinned_image, [], runtime_comparable=False)
+    assert decision.verdict is Verdict.REVIEW
+    assert "P9" not in decision.matched_rules
+
+
+def test_comparable_runtime_still_reaches_allow():
+    pinned_image = TargetRef(
+        ecosystem=Ecosystem.DOCKER, name="php", version="8.2.35", artifact_sha256="d" * 64
+    )
+    assert evaluate(pinned_image, [], runtime_comparable=True).verdict is Verdict.ALLOW

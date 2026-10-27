@@ -62,13 +62,17 @@ rules:
     rationale: Account takeover shows up as a new maintainer shipping quickly.
 
   - id: P9
-    description: No evidence of any severity and the artefact is pinned
+    description: No evidence of any severity, the artefact is pinned, and the runtime is comparable
     verdict: ALLOW
     requires_no_evidence: true
     requires_pinned: true
+    requires_runtime_comparable: true
     rationale: >
       An unpinned ALLOW is meaningless: the resolved artefact can change between
       the check and the install (TOCTOU). Unpinned with no findings is a REVIEW.
+      A base image we cannot place on a known release branch is also not an
+      ALLOW — absence of a floor is absence of knowledge, not proof of a patched
+      runtime (FR-09). Neither case is a BLOCK.
 
 # Fallback when no rule matched: an unpinned target with no findings.
 default_verdict: REVIEW

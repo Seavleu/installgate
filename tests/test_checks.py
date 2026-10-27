@@ -130,43 +130,72 @@ def test_safetensors_only_repo_is_clean():
     )
 
 
-def test_base_tag_below_floor_is_hard():
-    evidence = checks.check_runtime_floor(
-        target("php", Ecosystem.DOCKER, "8.1.0"), EvidenceBuilder(), floors={"php": "8.2.20"}
-    )
-    assert evidence is not None
-    assert evidence.severity == "hard"
-    assert evidence.observed["patched_floor"] == "8.2.20"
+PHP_FLOORS = {"php": {"8.2": "8.2.35", "8.3": "8.3.36"}}
 
 
-def test_base_tag_at_floor_passes():
-    assert (
-        checks.check_runtime_floor(
-            target("php", Ecosystem.DOCKER, "8.2.20"), EvidenceBuilder(), floors={"php": "8.2.20"}
-        )
-        is None
+def floor(tag: str, image: str = "php", floors=None):
+    return checks.check_runtime_floor(
+        target(image, Ecosystem.DOCKER, tag), EvidenceBuilder(), floors=floors or PHP_FLOORS
     )
+
+
+def test_base_tag_below_its_branch_floor_is_hard():
+    result = floor("8.2.20")
+    assert result.comparable is True
+    assert result.evidence is not None
+    assert result.evidence.severity == "hard"
+    assert result.evidence.observed["branch"] == "8.2"
+    assert result.evidence.observed["patched_floor"] == "8.2.35"
+
+
+def test_base_tag_at_its_branch_floor_passes():
+    result = floor("8.2.35")
+    assert result.comparable is True
+    assert result.evidence is None
 
 
 def test_suffixed_tag_at_floor_passes():
-    assert (
-        checks.check_runtime_floor(
-            target("python", Ecosystem.DOCKER, "3.11.9-slim"),
-            EvidenceBuilder(),
-            floors={"python": "3.11.9"},
-        )
-        is None
+    result = checks.check_runtime_floor(
+        target("python", Ecosystem.DOCKER, "3.11.9-slim"),
+        EvidenceBuilder(),
+        floors={"python": {"3.11": "3.11.9"}},
     )
+    assert result.evidence is None
 
 
-def test_non_numeric_tag_is_not_comparable():
-    # `latest` tells us nothing; other rules handle it rather than a false BLOCK.
-    assert (
-        checks.check_runtime_floor(
-            target("php", Ecosystem.DOCKER, "latest"), EvidenceBuilder(), floors={"php": "8.2.20"}
-        )
-        is None
-    )
+def test_a_newer_branch_is_judged_against_its_own_floor():
+    # The bug a single floor per image hides: 8.3.0 outranks 8.2.35 numerically
+    # but is itself unpatched on the 8.3 branch.
+    result = floor("8.3.0")
+    assert result.evidence is not None
+    assert result.evidence.observed["branch"] == "8.3"
+
+
+def test_unlisted_branch_is_not_comparable_and_never_blocks():
+    result = floor("8.9.1")
+    assert result.comparable is False
+    assert result.evidence is None
+    assert "no recorded floor" in result.reason
+
+
+def test_image_with_no_floors_is_not_comparable():
+    result = floor("1.0.0", image="some-vendor-image")
+    assert result.comparable is False
+    assert result.evidence is None
+
+
+def test_floating_tag_is_not_comparable():
+    result = floor("latest")
+    assert result.comparable is False
+    assert result.evidence is None
+    assert "floating tag" in result.reason
+
+
+def test_digest_only_reference_is_not_comparable():
+    ref = TargetRef(ecosystem=Ecosystem.DOCKER, name="php", artifact_sha256="a" * 64)
+    result = checks.check_runtime_floor(ref, EvidenceBuilder(), floors=PHP_FLOORS)
+    assert result.comparable is False
+    assert result.evidence is None
 
 
 def test_evidence_ids_increment_within_a_request():
