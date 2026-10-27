@@ -22,8 +22,9 @@ class Stage1Result:
     target: TargetRef
     evidence: list[Evidence]
     decision: PolicyDecision
-    # Why a container tag could not be judged, when it could not be (FR-09).
+    # Why a check could not be run, when one could not be (FR-09).
     runtime_note: str | None = None
+    typosquat_note: str | None = None
 
     @property
     def verdict(self) -> Verdict:
@@ -62,11 +63,12 @@ def gather_evidence(
     known_maintainers: list[str] | None = None,
     now: datetime | None = None,
     builder: EvidenceBuilder | None = None,
-) -> tuple[list[Evidence], str | None]:
+) -> tuple[list[Evidence], str | None, str | None]:
     """Run every applicable check in a fixed order so EV ids are reproducible.
 
-    Returns the evidence and, when a container tag could not be compared against
-    a floor, the reason why.
+    Returns the evidence plus, for each check that could not run, the reason:
+    the container tag could not be placed against a floor, or the ecosystem has
+    no typosquat reference set.
     """
     now = now or datetime.now(UTC)
     builder = builder or EvidenceBuilder()
@@ -75,14 +77,16 @@ def gather_evidence(
     missing = checks.check_exists(target, registry_facts, builder)
     if missing is not None:
         # Nothing else is knowable about a package that is not there.
-        return [missing], None
+        return [missing], None, None
 
     if osv_facts:
         malicious = checks.check_osv_malicious(target, osv_facts, builder)
         if malicious is not None:
             evidence.append(malicious)
 
-    evidence.extend(checks.check_typosquat(target, registry_facts, builder, now=now))
+    typosquat = checks.check_typosquat(target, registry_facts, builder, now=now)
+    evidence.extend(typosquat.evidence)
+    typosquat_note = None if typosquat.covered else typosquat.reason
     evidence.extend(checks.check_age(target, registry_facts, builder, now=now))
 
     maintainer = checks.check_maintainers(
@@ -102,7 +106,7 @@ def gather_evidence(
         if not floor.comparable:
             runtime_note = floor.reason
 
-    return evidence, runtime_note
+    return evidence, runtime_note, typosquat_note
 
 
 def run(
@@ -115,7 +119,7 @@ def run(
 ) -> Stage1Result:
     """The whole deterministic stage: enrich, gather evidence, apply policy."""
     enriched = enrich_target(target, registry_facts)
-    evidence, runtime_note = gather_evidence(
+    evidence, runtime_note, typosquat_note = gather_evidence(
         enriched, registry_facts, osv_facts, known_maintainers=known_maintainers, now=now
     )
     decision = evaluate(
@@ -123,7 +127,12 @@ def run(
         evidence,
         policy_path=policy_path,
         runtime_comparable=runtime_note is None,
+        typosquat_covered=typosquat_note is None,
     )
     return Stage1Result(
-        target=enriched, evidence=evidence, decision=decision, runtime_note=runtime_note
+        target=enriched,
+        evidence=evidence,
+        decision=decision,
+        runtime_note=runtime_note,
+        typosquat_note=typosquat_note,
     )

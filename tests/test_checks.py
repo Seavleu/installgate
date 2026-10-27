@@ -60,28 +60,29 @@ def test_non_mal_vulnerabilities_do_not_fire():
 
 
 def test_typosquat_alone_is_soft(monkeypatch):
-    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", 1)
+    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", {Ecosystem.PYPI: 1, Ecosystem.NPM: 1})
     monkeypatch.setattr(checks, "load_top_names", lambda eco: ("requests", "numpy"))
     facts = {"exists": True, "first_upload": days_ago(400)}
     out = checks.check_typosquat(target("reqeusts"), facts, EvidenceBuilder(), now=NOW)
-    assert [e.kind for e in out] == [EvidenceKind.TYPOSQUAT]
-    assert out[0].severity == "soft"
-    assert out[0].observed["nearest_popular"] == "requests"
+    assert out.covered is True
+    assert [e.kind for e in out.evidence] == [EvidenceKind.TYPOSQUAT]
+    assert out.evidence[0].severity == "soft"
+    assert out.evidence[0].observed["nearest_popular"] == "requests"
 
 
 def test_typosquat_on_a_days_old_project_is_hard(monkeypatch):
-    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", 1)
+    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", {Ecosystem.PYPI: 1, Ecosystem.NPM: 1})
     monkeypatch.setattr(checks, "load_top_names", lambda eco: ("requests", "numpy"))
     facts = {"exists": True, "first_upload": days_ago(2)}
     out = checks.check_typosquat(target("reqeusts"), facts, EvidenceBuilder(), now=NOW)
-    kinds = [e.kind for e in out]
+    kinds = [e.kind for e in out.evidence]
     assert EvidenceKind.TYPOSQUAT_NEW_PROJECT in kinds
-    hard = [e for e in out if e.kind is EvidenceKind.TYPOSQUAT_NEW_PROJECT][0]
+    hard = [e for e in out.evidence if e.kind is EvidenceKind.TYPOSQUAT_NEW_PROJECT][0]
     assert hard.severity == "hard"
 
 
 def test_exact_popular_name_is_not_a_typosquat(monkeypatch):
-    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", 1)
+    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", {Ecosystem.PYPI: 1, Ecosystem.NPM: 1})
     monkeypatch.setattr(checks, "load_top_names", lambda eco: ("requests",))
     out = checks.check_typosquat(
         target("requests"),
@@ -89,14 +90,15 @@ def test_exact_popular_name_is_not_a_typosquat(monkeypatch):
         EvidenceBuilder(),
         now=NOW,
     )
-    assert out == []
+    assert out.evidence == []
 
 
 def test_short_names_are_not_compared(monkeypatch):
     # At three characters a one-edit distance is normal between unrelated names.
-    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", 1)
+    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", {Ecosystem.PYPI: 1, Ecosystem.NPM: 1})
     monkeypatch.setattr(checks, "load_top_names", lambda eco: ("six",))
-    assert checks.check_typosquat(target("sax"), {"exists": True}, EvidenceBuilder(), now=NOW) == []
+    out = checks.check_typosquat(target("sax"), {"exists": True}, EvidenceBuilder(), now=NOW)
+    assert out.evidence == []
 
 
 def test_truncated_reference_set_raises_instead_of_passing(monkeypatch):
@@ -203,3 +205,20 @@ def test_evidence_ids_increment_within_a_request():
     first = checks.check_exists(target("a"), {"exists": False}, builder)
     second = checks.check_exists(target("b"), {"exists": False}, builder)
     assert (first.id, second.id) == ("EV-1", "EV-2")
+
+
+def test_npm_typosquat_check_is_switched_off_not_silently_clean():
+    out = checks.check_typosquat(
+        target("lodahs", Ecosystem.NPM), {"exists": True}, EvidenceBuilder(), now=NOW
+    )
+    assert out.covered is False
+    assert out.evidence == []
+    assert "disabled for npm" in (out.reason or "")
+
+
+def test_pep503_spellings_are_the_same_project_not_a_typosquat(monkeypatch):
+    monkeypatch.setattr(checks, "MIN_SNAPSHOT_NAMES", {Ecosystem.PYPI: 1})
+    monkeypatch.setattr(checks, "load_top_names", lambda eco: ("requests-oauthlib",))
+    for spelling in ("requests_oauthlib", "Requests.OAuthlib", "REQUESTS-oauthlib"):
+        out = checks.check_typosquat(target(spelling), {"exists": True}, EvidenceBuilder(), now=NOW)
+        assert out.evidence == [], spelling

@@ -29,6 +29,7 @@ class Rule:
     requires_no_evidence: bool
     requires_pinned: bool
     requires_runtime_comparable: bool
+    requires_typosquat_coverage: bool
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ def _parse_rule(raw: dict[str, Any]) -> Rule:
         requires_no_evidence=bool(raw.get("requires_no_evidence")),
         requires_pinned=bool(raw.get("requires_pinned")),
         requires_runtime_comparable=bool(raw.get("requires_runtime_comparable")),
+        requires_typosquat_coverage=bool(raw.get("requires_typosquat_coverage")),
     )
 
 
@@ -99,12 +101,14 @@ def evaluate(
     evidence: list[Evidence],
     policy_path: str | None = None,
     runtime_comparable: bool = True,
+    typosquat_covered: bool = True,
 ) -> PolicyDecision:
     """Evaluate every rule; the strictest match sets the verdict.
 
     `runtime_comparable` is False when a container tag could not be placed on a
-    known release branch. That blocks ALLOW without producing a BLOCK: we lack
-    knowledge, not evidence (FR-09).
+    known release branch; `typosquat_covered` is False when the ecosystem has no
+    usable popular-name reference set. Either blocks ALLOW without producing a
+    BLOCK: we lack knowledge, not evidence (FR-09).
     """
     rules, version, default = load_policy(policy_path)
     kinds = {e.kind for e in evidence}
@@ -120,6 +124,8 @@ def evaluate(
             if evidence or (rule.requires_pinned and not pinned):
                 continue
             if rule.requires_runtime_comparable and not runtime_comparable:
+                continue
+            if rule.requires_typosquat_coverage and not typosquat_covered:
                 continue
         elif not (rule.any_of & kinds):
             continue

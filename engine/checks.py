@@ -24,10 +24,24 @@ TYPOSQUAT_NEW_PROJECT_DAYS = 7
 TYPOSQUAT_MAX_DISTANCE = 2
 # Below this length a 1-edit distance is normal between unrelated names.
 TYPOSQUAT_MIN_LENGTH = 5
-# A reference set this small cannot support a typosquat claim either way. Rather
-# than return "no match" — which reads as a clean bill of health — the check
-# raises and the pipeline fails closed to REVIEW.
-MIN_SNAPSHOT_NAMES = 100
+# Minimum reference names an ecosystem needs before a near-miss means anything,
+# per ecosystem. `None` disables the check for that ecosystem outright.
+#
+# A snapshot smaller than its threshold is a misconfiguration, not a coverage
+# decision: the file was meant to be there and is short, so the check raises and
+# the pipeline fails closed. A `None` is a deliberate "we do not cover this yet".
+MIN_SNAPSHOT_NAMES: dict[Ecosystem, int | None] = {
+    # 100 while the hand-seeded list is in place; fetch_top_pypi.py raises it to
+    # 4000 when it installs a real snapshot.
+    Ecosystem.PYPI: 100,
+    # Cut from this milestone: no vetted popular-name source for npm, so the
+    # check is off rather than running against 226 names written from memory.
+    Ecosystem.NPM: None,
+}
+
+# Ecosystems the typosquat check applies to at all. Container images and model
+# repositories are namespaced, so a flat popular-name list is the wrong tool.
+TYPOSQUAT_ECOSYSTEMS = frozenset({Ecosystem.PYPI, Ecosystem.NPM})
 
 _SNAPSHOTS = {
     Ecosystem.PYPI: "pypi-top5k-2026-10-25.txt",
@@ -44,6 +58,22 @@ _SOURCE_FOR = {
 
 class SnapshotUnavailable(RuntimeError):
     """The typosquat reference set is missing or too small to decide anything."""
+
+
+_PEP503_SEPARATORS = re.compile(r"[-_.]+")
+
+
+def normalize_name(name: str, ecosystem: Ecosystem) -> str:
+    """PEP 503 normalisation for PyPI, plain lowercase elsewhere.
+
+    `Requests_OAuthlib` and `requests-oauthlib` are the same project to PyPI, so
+    comparing them unnormalised reports a two-edit "typosquat" of a package
+    against itself.
+    """
+    lowered = name.strip().lower()
+    if ecosystem is Ecosystem.PYPI:
+        return _PEP503_SEPARATORS.sub("-", lowered)
+    return lowered
 
 
 def _parse_iso(raw: Any) -> datetime | None:
@@ -65,11 +95,12 @@ def load_top_names(ecosystem: Ecosystem) -> tuple[str, ...]:
     if not path.exists():
         return ()
     names = [
-        line.strip().lower()
+        normalize_name(line, ecosystem)
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     ]
-    return tuple(names)
+    # Normalisation collapses spellings, so dedupe while keeping file order.
+    return tuple(dict.fromkeys(names))
 
 
 @functools.lru_cache(maxsize=1)
@@ -121,7 +152,10 @@ def check_age(
 
     first = _parse_iso(facts.get("first_upload"))
     if first is not None:
-        age_days = (now - first).days
+        # A release dated after the clock means the clock is stale, not that the
+        # package is from the future. Clamp, or a negative age silently satisfies
+        # every "younger than N days" test.
+        age_days = max((now - first).days, 0)
         if age_days < NEW_PROJECT_DAYS:
             out.append(
                 builder.build(
@@ -136,7 +170,7 @@ def check_age(
 
     latest = _parse_iso(facts.get("latest_upload"))
     if latest is not None:
-        age_days = (now - latest).days
+        age_days = max((now - latest).days, 0)
         if age_days < NEW_RELEASE_DAYS:
             out.append(
                 builder.build(
@@ -176,7 +210,7 @@ def check_maintainers(
 
     now = now or datetime.now(UTC)
     latest = _parse_iso(facts.get("latest_upload"))
-    if latest is None or (now - latest).days >= NEW_RELEASE_DAYS:
+    if latest is None or max((now - latest).days, 0) >= NEW_RELEASE_DAYS:
         return None
 
     return builder.build(
@@ -210,21 +244,44 @@ def check_osv_malicious(
     )
 
 
+def typosquat_coverage(ecosystem: Ecosystem) -> str | None:
+    """Why this ecosystem has no typosquat coverage, or None when it needs none.
+
+    Only name-based package registries are in scope. A container image or a
+    model repository is addressed by `namespace/name`, and a near-miss there is
+    a different problem with different reference data — so the check is not
+    applicable rather than missing, and must not hold back an ALLOW.
+    """
+    if ecosystem not in TYPOSQUAT_ECOSYSTEMS:
+        return None
+    if MIN_SNAPSHOT_NAMES.get(ecosystem) is None:
+        return (
+            f"typosquat check is disabled for {ecosystem.value}: no vetted "
+            "popular-name source for this milestone"
+        )
+    if ecosystem not in _SNAPSHOTS:
+        return f"no popular-name reference set exists for {ecosystem.value}"
+    return None
+
+
 def nearest_popular_name(name: str, ecosystem: Ecosystem) -> tuple[str, int] | None:
     """Closest name in the snapshot, if it is a near-miss rather than a match.
 
-    Raises SnapshotUnavailable when the reference set is too small to be trusted —
-    an empty answer there would be indistinguishable from "this name is fine".
+    Raises SnapshotUnavailable when a snapshot that should be there is too short
+    to be trusted — an empty answer would be indistinguishable from "name is fine".
+    An ecosystem with the check switched off is handled by `typosquat_coverage`
+    before this is called.
     """
+    threshold = MIN_SNAPSHOT_NAMES.get(ecosystem)
     candidate_names = load_top_names(ecosystem)
-    if ecosystem in _SNAPSHOTS and len(candidate_names) < MIN_SNAPSHOT_NAMES:
+    if threshold is not None and len(candidate_names) < threshold:
         raise SnapshotUnavailable(
             f"{ecosystem.value} reference set has {len(candidate_names)} names, "
-            f"fewer than the {MIN_SNAPSHOT_NAMES} required to judge a typosquat"
+            f"fewer than the {threshold} required to judge a typosquat"
         )
     if not candidate_names:
         return None
-    lowered = name.lower()
+    lowered = normalize_name(name, ecosystem)
     if lowered in candidate_names or len(lowered) < TYPOSQUAT_MIN_LENGTH:
         return None
 
@@ -244,16 +301,34 @@ def nearest_popular_name(name: str, ecosystem: Ecosystem) -> tuple[str, int] | N
     return best
 
 
+@dataclass(frozen=True)
+class TyposquatResult:
+    """Outcome of the near-miss check.
+
+    `covered` is False when the ecosystem has no usable reference set. As with
+    the runtime floors, that is an absence of knowledge: it must not read as a
+    clean result, so it blocks ALLOW without producing a BLOCK.
+    """
+
+    covered: bool
+    evidence: list[Evidence]
+    reason: str | None = None
+
+
 def check_typosquat(
     target: TargetRef,
     facts: dict[str, Any],
     builder: EvidenceBuilder,
     now: datetime | None = None,
-) -> list[Evidence]:
+) -> TyposquatResult:
     """P5 typosquat (soft), and P4 typosquat on a days-old project (hard, derived)."""
+    uncovered = typosquat_coverage(target.ecosystem)
+    if uncovered is not None:
+        return TyposquatResult(covered=False, evidence=[], reason=uncovered)
+
     match = nearest_popular_name(target.name, target.ecosystem)
     if match is None:
-        return []
+        return TyposquatResult(covered=True, evidence=[])
     popular, distance = match
     source = _SOURCE_FOR[target.ecosystem]
     observed = {
@@ -276,7 +351,7 @@ def check_typosquat(
 
     now = now or datetime.now(UTC)
     first = _parse_iso(facts.get("first_upload"))
-    if first is not None and (now - first).days < TYPOSQUAT_NEW_PROJECT_DAYS:
+    if first is not None and max((now - first).days, 0) < TYPOSQUAT_NEW_PROJECT_DAYS:
         out.append(
             builder.build(
                 EvidenceKind.TYPOSQUAT_NEW_PROJECT,
@@ -287,11 +362,11 @@ def check_typosquat(
                 observed={
                     **observed,
                     "first_upload": first.isoformat(),
-                    "age_days": (now - first).days,
+                    "age_days": max((now - first).days, 0),
                 },
             )
         )
-    return out
+    return TyposquatResult(covered=True, evidence=out)
 
 
 def check_hf_format(
