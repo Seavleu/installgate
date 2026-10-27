@@ -14,6 +14,7 @@ three classes stay reproducible and so a fresh clone has a runnable benchmark.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -337,6 +338,9 @@ def build_malicious() -> list[dict[str, Any]]:
 
 
 def main() -> int:
+    # Windows consoles default to a legacy codepage; the prose below is UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     CASES_DIR.mkdir(parents=True, exist_ok=True)
     for filename, rows in [
         ("benign.jsonl", build_benign()),

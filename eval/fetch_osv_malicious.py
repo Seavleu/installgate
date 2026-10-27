@@ -57,6 +57,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -426,6 +427,9 @@ async def run(
 
 
 def main() -> int:
+    # Windows consoles default to a legacy codepage; the prose below is UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument(

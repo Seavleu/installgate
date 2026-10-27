@@ -32,6 +32,12 @@ def summarise(body: dict[str, Any] | None) -> dict[str, Any]:
 
     info = body.get("info") or {}
     releases: dict[str, list[dict[str, Any]]] = body.get("releases") or {}
+    if not releases and body.get("urls"):
+        # A release document (/pypi/{name}/{version}/json) has no `releases` map;
+        # its files are under `urls` and describe that one version. Without this
+        # the summary comes back with no dates and no hash, which reads as a
+        # package nobody ever uploaded.
+        releases = {str(info.get("version")): list(body["urls"])}
 
     upload_times: list[datetime] = []
     for files in releases.values():

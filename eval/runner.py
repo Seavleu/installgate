@@ -9,6 +9,7 @@ a case is a package name plus the metadata an API would have returned.
 from __future__ import annotations
 
 import json
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -74,6 +75,7 @@ class CaseResult:
     matched_rules: list[str]
     verified_source: bool
     registry_state: str | None
+    label_conflict: str | None
     clock: datetime
     clock_from_label: bool
     error: str | None = None
@@ -140,6 +142,7 @@ def run_case(case: dict[str, Any]) -> CaseResult:
         matched_rules=rules,
         verified_source=bool(case.get("verified_source", True)),
         registry_state=case.get("registry_state"),
+        label_conflict=case.get("label_conflict"),
         clock=now,
         clock_from_label=from_label,
         error=error,
@@ -251,6 +254,7 @@ def summarise(results: list[CaseResult], cases: list[dict[str, Any]]) -> dict[st
         "attribution": rule_attribution(results),
         "malicious_split": malicious_split(results),
         "errors": [r for r in results if r.error],
+        "conflicts": [r for r in results if r.label_conflict],
         "clock_labelled": len(labelled),
         "clock_oldest": clocks[0] if clocks else FALLBACK_NOW,
         "clock_newest": clocks[-1] if clocks else FALLBACK_NOW,
@@ -267,12 +271,16 @@ def malicious_split(results: list[CaseResult]) -> dict[str, dict[str, Any]]:
     lets a working P1 hide a P2 that was never exercised.
     """
     groups = {
-        "live (registry 404s, P1 under test)": lambda r: (
-            r.registry_state != ("simulated_pre_removal")
+        "live, package already removed (P1 under test)": lambda r: (
+            r.registry_state == "live_absent"
+        ),
+        "live, package still published (P2 under test)": lambda r: (
+            r.registry_state == "live_present"
         ),
         "simulated pre-removal (P2 under test)": lambda r: (
             r.registry_state == "simulated_pre_removal"
         ),
+        "registry state unconfirmed": lambda r: r.registry_state in (None, "live_unverified"),
     }
     out: dict[str, dict[str, Any]] = {}
     malicious = [r for r in results if r.label == "malicious"]
@@ -456,6 +464,23 @@ def render(results: list[CaseResult], summary: dict[str, Any]) -> str:
         for r in summary["errors"][:20]:
             lines.append(f"- `{r.id}`: {r.error}")
 
+    conflicts = summary["conflicts"]
+    if conflicts:
+        lines += [
+            "",
+            "## Known-wrong labels",
+            "",
+            f"**{len(conflicts)} cases contradict the registry and are still being "
+            "scored.** `eval.verify_labels` found the package exists while the case "
+            "asserts it does not, so each one currently counts as a pass on a premise "
+            "that is false. Relabel or replace them; which of typosquat, malicious or "
+            "benign they become is a human decision, so the script refuses to guess.",
+            "",
+            "| Case | Conflict |",
+            "| --- | --- |",
+        ]
+        lines += [f"| `{r.id}` | {r.label_conflict} |" for r in conflicts[:20]]
+
     simulated = [r for r in results if r.registry_state == "simulated_pre_removal"]
     if summary["placeholders"] or simulated:
         lines += ["", "## What these numbers do not show", ""]
@@ -494,6 +519,9 @@ def render(results: list[CaseResult], summary: dict[str, Any]) -> str:
 
 
 def main() -> int:
+    # Windows consoles default to a legacy codepage; the prose below is UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     cases = load_cases()
     if not cases:
         print("no cases found in eval/cases/")
@@ -523,6 +551,11 @@ def main() -> int:
         f"{summary['clock_oldest'].date()}..{summary['clock_newest'].date()}"
     )
     print("NOTE: deterministic-only run; model-call and cost figures are not meaningful")
+    if summary["conflicts"]:
+        print(
+            f"WARNING: {len(summary['conflicts'])} cases contradict the registry "
+            "and are still scored as passes"
+        )
     if summary["placeholders"]:
         print(
             f"WARNING: {len(summary['placeholders'])} cases have unconfirmed registry facts; "

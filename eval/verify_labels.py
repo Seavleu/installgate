@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -69,18 +70,30 @@ async def fetch_pypi(
 ) -> dict[str, Any]:
     """Registry facts for one package, or {'exists': False} on a 404.
 
-    A pinned case asks for that exact release: `/pypi/{name}/{version}/json`.
-    Reading the project-level document instead would stamp the case with the
-    dates and hash of whatever shipped most recently, which is not the artefact
-    the case pins.
+    A pinned case needs both documents. The project document carries the age of
+    the project and its maintainers; only the release document
+    (`/pypi/{name}/{version}/json`) carries the upload date and hash of the
+    artefact the case actually pins. Reading just the project document would
+    stamp the case with whatever shipped most recently instead.
     """
-    url = (
-        f"{project_url(name).removesuffix('/json')}/{version}/json"
-        if version
-        else project_url(name)
-    )
-    body = await get_json(client, url, allow_404=True)
-    return summarise(body)
+    project = await get_json(client, project_url(name), allow_404=True)
+    facts = summarise(project)
+    if not version or not facts.get("exists"):
+        return facts
+
+    release_url = f"{project_url(name).removesuffix('/json')}/{version}/json"
+    release = await get_json(client, release_url, allow_404=True)
+    if release is None:
+        facts["pinned_release_found"] = False
+        return facts
+
+    pinned = summarise(release)
+    # first_upload stays from the project: P6 asks how old the *project* is.
+    facts["latest_version"] = version
+    facts["latest_upload"] = pinned.get("latest_upload")
+    facts["latest_sha256"] = pinned.get("latest_sha256")
+    facts["pinned_release_found"] = True
+    return facts
 
 
 async def verify_hallucinated(
@@ -92,10 +105,18 @@ async def verify_hallucinated(
     if facts.get("exists"):
         # Do not relabel automatically: a name that appeared since the case was
         # written may be a benign project or may be the squat we predicted.
+        # Record the contradiction on the case so the benchmark cannot keep
+        # scoring it as a pass without saying the label is known to be wrong.
+        case["label_conflict"] = (
+            f"{name!r} resolved on PyPI at {stamp}; the case still claims it does not exist"
+        )
+        case["verified_at"] = stamp
+        case["verified_source"] = False
         return case, (
-            f"{case['id']}: {name!r} now exists on PyPI — the label is stale. "
+            f"{case['id']}: {name!r} now exists on PyPI - the label is stale. "
             "Review by hand: move it to typosquat/malicious or replace the name."
         )
+    case.pop("label_conflict", None)
     case["facts"] = {"exists": False}
     case["verified_at"] = stamp
     case["verified_source"] = True
@@ -237,6 +258,9 @@ async def run(labels: list[str], dry_run: bool, concurrency: int) -> int:
 
 
 def main() -> int:
+    # Windows consoles default to a legacy codepage; the prose below is UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--labels",

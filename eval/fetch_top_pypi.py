@@ -18,6 +18,7 @@ hand-seeded files would otherwise keep that bar on the floor.
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -120,6 +121,9 @@ def render(names: list[str], count: int, stamp: str, last_update: str | None) ->
 
 
 def main() -> int:
+    # Windows consoles default to a legacy codepage; the prose below is UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=5000)
     parser.add_argument("--dry-run", action="store_true")
