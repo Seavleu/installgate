@@ -252,6 +252,10 @@ def _parse_version(raw: str) -> Any | None:
         return None
 
 
+# Range event keys we know how to read on a version-ordered range.
+_KNOWN_EVENTS = frozenset({"introduced", "fixed", "last_affected"})
+
+
 def _range_covers(rng: dict[str, Any], version: str | None) -> bool | None:
     """Evaluate one OSV range against a version.
 
@@ -261,6 +265,19 @@ def _range_covers(rng: dict[str, Any], version: str | None) -> bool | None:
     that as undecided downgrades a real BLOCK to REVIEW.
     """
     events = rng.get("events") or []
+
+    # A GIT range is ordered by commit, not by version. Mapping one to a release
+    # needs the repository, which we do not read, so there is nothing to compare
+    # and the answer is "cannot tell" rather than a guess in either direction.
+    if str(rng.get("type", "")).upper() == "GIT":
+        return None
+
+    # `limit` bounds a GIT traversal and has no version meaning on an
+    # ECOSYSTEM or SEMVER range. Seeing one here means the record is shaped in
+    # a way this code was not written for; say so instead of ignoring it.
+    if any(key not in _KNOWN_EVENTS for event in events for key in event):
+        return None
+
     introduced = [str(e["introduced"]) for e in events if "introduced" in e]
     closing = [
         str(e.get("fixed") or e.get("last_affected"))

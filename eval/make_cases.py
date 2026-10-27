@@ -79,8 +79,19 @@ BENIGN_PYPI = [
     ("filelock", "3.15.4"),
     ("platformdirs", "4.2.2"),
     ("virtualenv", "20.26.3"),
-    ("tomli", "2.0.1"),
 ]
+
+# A clean release of a package that carries a MAL- advisory for other versions.
+# litellm has 956 releases; MAL-2026-2144 names three of them. 1.82.6 sits one
+# patch below an affected release, so a check that matches on the package name
+# rather than the version blocks it. That regression belongs in the benchmark,
+# not only in a unit test.
+OSV_SCOPED_BENIGN = {
+    "name": "litellm",
+    "clean_version": "1.82.6",
+    "advisory": "MAL-2026-2144",
+    "affected_versions": ["1.107.0", "1.82.7", "1.82.8"],
+}
 
 # Tags at or above the floor of their own branch in engine/runtime_floors.yaml.
 # Those floors are unverified placeholders; these tags move with them.
@@ -240,6 +251,47 @@ def build_benign() -> list[dict[str, Any]]:
             )
         )
         n += 1
+    spec = OSV_SCOPED_BENIGN
+    rows.append(
+        case(
+            id=f"benign-{n:03d}",
+            label="benign",
+            ecosystem="pypi",
+            command=f"pip install {spec['name']}=={spec['clean_version']}",
+            expected_verdict="ALLOW",
+            facts={
+                "exists": True,
+                "latest_version": spec["clean_version"],
+                "latest_sha256": SHA,
+                "first_upload": ago(900),
+                "latest_upload": ago(200),
+                "maintainers": ["core-team"],
+            },
+            # A real advisory for this package, scoped to versions this case
+            # does not install. P2 must run and decline, not fire on the name.
+            osv={
+                "malicious": True,
+                "mal_ids": [spec["advisory"]],
+                "mal_records": [
+                    {
+                        "id": spec["advisory"],
+                        "versions": spec["affected_versions"],
+                        "ranges": [],
+                        "whole_package": False,
+                    }
+                ],
+            },
+            verified_source=False,
+            notes=(
+                f"Regression: {spec['advisory']} covers "
+                f"{', '.join(spec['affected_versions'])}, not "
+                f"{spec['clean_version']}. Matching the advisory by package name "
+                "would hard-block a clean release of a widely used package."
+            ),
+        )
+    )
+    n += 1
+
     for image, tag in BENIGN_DOCKER:
         rows.append(
             case(
@@ -337,17 +389,28 @@ def build_malicious() -> list[dict[str, Any]]:
     ]
 
 
+PROVENANCE_PATH = CASES_DIR / "malicious.provenance.json"
+
+
 def main() -> int:
     # Windows consoles default to a legacy codepage; the prose below is UTF-8.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     CASES_DIR.mkdir(parents=True, exist_ok=True)
-    for filename, rows in [
+    files = [
         ("benign.jsonl", build_benign()),
-        ("malicious.jsonl", build_malicious()),
         ("hallucinated.jsonl", build_hallucinated()),
         ("typosquat.jsonl", build_typosquat()),
-    ]:
+    ]
+    # Do not overwrite real advisories with placeholders. Once
+    # eval.fetch_osv_malicious has run it leaves a provenance file behind, and
+    # regenerating over the top of it would silently throw away fetched data.
+    if PROVENANCE_PATH.exists():
+        print(f"malicious.jsonl: left alone ({PROVENANCE_PATH.name} present, real OSV records)")
+    else:
+        files.insert(1, ("malicious.jsonl", build_malicious()))
+
+    for filename, rows in files:
         with (CASES_DIR / filename).open("w", encoding="utf-8", newline="\n") as fh:
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")

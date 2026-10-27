@@ -207,3 +207,101 @@ def test_a_bounded_range_is_undetermined_when_nothing_is_pinned():
     evidence = checks.check_osv_malicious(target("litellm"), facts, EvidenceBuilder())
     assert evidence is not None
     assert evidence.severity == "soft"
+
+
+def test_a_git_range_is_never_compared_against_a_version():
+    """A GIT range is ordered by commit. Mapping one to a release needs the
+    repository, which we do not read, so there is nothing to compare."""
+    facts = facts_for(
+        {
+            "id": "MAL-2025-8888",
+            "affected": [
+                {
+                    "package": {"name": "litellm", "ecosystem": "PyPI"},
+                    "ranges": [
+                        {
+                            "type": "GIT",
+                            "repo": "https://github.com/example/litellm",
+                            "events": [{"introduced": "0"}],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    evidence = checks.check_osv_malicious(target("litellm", "1.0.0"), facts, EvidenceBuilder())
+    assert evidence is not None
+    assert evidence.severity == "soft", "a GIT range must not produce a hard BLOCK"
+    assert evidence.observed["match"] == "version_undetermined"
+
+
+def test_a_limit_event_is_not_silently_ignored():
+    # `limit` bounds a GIT traversal and has no version meaning here. Dropping
+    # it would silently widen the range to everything after `introduced`.
+    facts = facts_for(ranged_record([{"introduced": "1.0.0"}, {"limit": "2.0.0"}], "MAL-2025-6666"))
+    evidence = checks.check_osv_malicious(target("litellm", "5.0.0"), facts, EvidenceBuilder())
+    assert evidence is not None
+    assert evidence.severity == "soft"
+
+
+def test_last_affected_and_fixed_differ_at_the_boundary():
+    inclusive = facts_for(
+        ranged_record([{"introduced": "1.0.0"}, {"last_affected": "2.0.0"}], "MAL-A")
+    )
+    exclusive = facts_for(ranged_record([{"introduced": "1.0.0"}, {"fixed": "2.0.0"}], "MAL-B"))
+    assert checks.check_osv_malicious(target("litellm", "2.0.0"), inclusive, EvidenceBuilder())
+    assert (
+        checks.check_osv_malicious(target("litellm", "2.0.0"), exclusive, EvidenceBuilder()) is None
+    )
+
+
+# ---------- when an unpinned install goes soft ----------
+def _run_unpinned(facts: dict):
+    from datetime import UTC, datetime
+
+    from engine import stage1
+
+    return stage1.run(
+        target("litellm"),
+        registry_facts=facts,
+        osv_facts=facts_for(LITELLM_RECORD),
+        now=datetime(2026, 10, 27, tzinfo=UTC),
+    )
+
+
+BASE_FACTS = {
+    "exists": True,
+    "first_upload": "2023-01-01T00:00:00+00:00",
+    "latest_upload": "2026-01-01T00:00:00+00:00",
+}
+
+
+def test_unpinned_install_resolves_and_is_decided_not_left_soft():
+    """An unpinned install is only undetermined when resolution failed.
+
+    stage1 enriches the target with the version the registry reports before any
+    check runs, so `pip install litellm` is judged against the release it would
+    actually fetch.
+    """
+    clean = _run_unpinned({**BASE_FACTS, "latest_version": "1.80.0", "latest_sha256": "a" * 64})
+    assert clean.target.version == "1.80.0"
+    assert [e for e in clean.evidence if e.kind is EvidenceKind.OSV_MALICIOUS] == []
+    assert clean.verdict is Verdict.ALLOW
+
+
+def test_unpinned_install_resolving_to_an_affected_release_blocks():
+    affected = _run_unpinned({**BASE_FACTS, "latest_version": "1.107.0", "latest_sha256": "a" * 64})
+    hit = [e for e in affected.evidence if e.kind is EvidenceKind.OSV_MALICIOUS]
+    assert hit and hit[0].severity == "hard"
+    assert affected.verdict is Verdict.BLOCK
+
+
+def test_soft_osv_evidence_only_when_resolution_failed():
+    # The registry answered but named no version, so there is nothing to place
+    # against the advisory. That is REVIEW, not ALLOW and not BLOCK.
+    unresolved = _run_unpinned(BASE_FACTS)
+    assert unresolved.target.version is None
+    hit = [e for e in unresolved.evidence if e.kind is EvidenceKind.OSV_MALICIOUS]
+    assert hit and hit[0].severity == "soft"
+    assert hit[0].observed["match"] == "version_undetermined"
+    assert unresolved.verdict is Verdict.REVIEW
