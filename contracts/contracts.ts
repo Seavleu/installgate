@@ -18,13 +18,18 @@ export const TargetRef = z.object({
   name: z.string().min(1).max(214).regex(/^[A-Za-z0-9@/_.\-:]+$/),
   version: z.string().max(64).optional(),
   artifact_sha256: sha256.optional(),
+  revision: z.string().regex(/^[0-9a-f]{40}$/).optional(),
 }).strict();
 
 export const EvidenceKind = z.enum([
   "not_found", "new_project", "new_release", "maintainer_change", "osv_malicious",
   "typosquat", "typosquat_new_project", "hf_pickle", "hf_safetensors_sibling", "runtime_below_floor",
-  "web_report", "recheck_passed", "sandbox_import",
+  "web_report", "recheck_passed", "sandbox_import", "check_unavailable",
 ]);
+
+export const CHECK_UNAVAILABLE_REASONS = [
+  "no_floor_for_branch", "floating_tag", "digest_only", "image_not_in_table", "typosquat_unsupported_ecosystem",
+] as const;
 
 export const Evidence = z.object({
   id: evId,
@@ -38,7 +43,12 @@ export const Evidence = z.object({
   fetched_at: z.string().datetime(),
   content_hash: sha256,
 }).strict().refine(e => !(e.trust === "retrieved_untrusted" && e.severity === "hard"),
-  { message: "untrusted (web) evidence can never be 'hard'" });
+  { message: "untrusted (web) evidence can never be 'hard'" })
+  .refine(e => !(e.kind === "check_unavailable" && e.severity === "hard"),
+    { message: "check_unavailable can never be 'hard'" })
+  .refine(e => e.kind !== "check_unavailable" ||
+    (CHECK_UNAVAILABLE_REASONS as readonly unknown[]).includes(e.observed["reason"]),
+    { message: "check_unavailable needs observed['reason'] from CHECK_UNAVAILABLE_REASONS" });
 
 export const ExplanationSentence = z.object({
   text: z.string().min(1).max(400),
@@ -130,7 +140,9 @@ export const GateVerdict = z.object({
     if (v.remediation?.status !== "VERIFIED_SUBSTITUTE") bad("VERIFIED_SUBSTITUTE outcome requires verified remediation");
     if (v.next_action !== "use_substitute") bad("next_action must be use_substitute");
   } else if (v.outcome !== v.final_verdict) bad("outcome must mirror final_verdict");
-  if (v.outcome === "ALLOW" && !(v.target.version && v.target.artifact_sha256)) bad("ALLOW must be pinned (TOCTOU)");
+  const pinned = !!(v.target.version && v.target.artifact_sha256) ||
+    (v.target.ecosystem === "huggingface" && v.target.revision !== undefined);
+  if (v.outcome === "ALLOW" && !pinned) bad("ALLOW must be pinned (version + sha256, or a Hugging Face revision) (TOCTOU)");
 });
 
 export type GateVerdict = z.infer<typeof GateVerdict>;

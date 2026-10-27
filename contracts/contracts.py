@@ -60,6 +60,12 @@ class TargetRef(Frozen):
     name: str = Field(min_length=1, max_length=214, pattern=r"^[A-Za-z0-9@/_.\-:]+$")  # validated BEFORE any network call
     version: Optional[str] = Field(default=None, max_length=64)
     artifact_sha256: Optional[str] = Field(default=None, pattern=SHA256)
+    revision: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{40}$")  # git commit; for Hugging Face, pinned = revision is set
+
+
+CHECK_UNAVAILABLE_REASONS = frozenset({
+    "no_floor_for_branch", "floating_tag", "digest_only", "image_not_in_table", "typosquat_unsupported_ecosystem",
+})
 
 
 class EvidenceKind(str, Enum):
@@ -76,6 +82,7 @@ class EvidenceKind(str, Enum):
     WEB_REPORT = "web_report"            # Tavily; untrusted, soft only
     RECHECK_PASSED = "recheck_passed"
     SANDBOX_IMPORT = "sandbox_import"
+    CHECK_UNAVAILABLE = "check_unavailable"  # a check could not run; observed["reason"] says why; never hard
 
 
 class Evidence(Frozen):
@@ -92,8 +99,11 @@ class Evidence(Frozen):
 
     @staticmethod
     def compute_hash(kind: str, target: TargetRef, observed: dict[str, Any], source_url: Optional[str]) -> str:
+        t = target.model_dump(mode="json")
+        if t.get("revision") is None:
+            t.pop("revision", None)  # keeps hashes of evidence made before the revision field unchanged
         blob = json.dumps(
-            {"k": kind, "t": target.model_dump(mode="json"), "o": observed, "u": source_url},
+            {"k": kind, "t": t, "o": observed, "u": source_url},
             sort_keys=True, separators=(",", ":"), default=str,
         )
         return hashlib.sha256(blob.encode()).hexdigest()
@@ -102,6 +112,10 @@ class Evidence(Frozen):
     def _invariants(self) -> "Evidence":
         if self.trust == "retrieved_untrusted" and self.severity == "hard":
             raise ValueError("untrusted (web) evidence can never be 'hard'")
+        if self.kind == EvidenceKind.CHECK_UNAVAILABLE and self.severity == "hard":
+            raise ValueError("check_unavailable can never be 'hard'")
+        if self.kind == EvidenceKind.CHECK_UNAVAILABLE and self.observed.get("reason") not in CHECK_UNAVAILABLE_REASONS:
+            raise ValueError(f"check_unavailable needs observed['reason'] in {sorted(CHECK_UNAVAILABLE_REASONS)}")
         if self.content_hash != self.compute_hash(self.kind.value, self.target, self.observed, self.source_url):
             raise ValueError("content_hash mismatch: evidence was mutated")
         return self
@@ -238,8 +252,9 @@ class GateVerdict(Frozen):
                 raise ValueError("next_action must be use_substitute")
         elif self.outcome.value != self.final_verdict.value:
             raise ValueError("outcome must mirror final_verdict unless VERIFIED_SUBSTITUTE")
-        if self.final_verdict == Verdict.ALLOW and self.outcome == Outcome.ALLOW and not (
-            self.target.version and self.target.artifact_sha256
-        ):
-            raise ValueError("ALLOW must be pinned (version + sha256) to be meaningful (TOCTOU)")
+        pinned = bool(self.target.version and self.target.artifact_sha256) or (
+            self.target.ecosystem == Ecosystem.HUGGINGFACE and self.target.revision is not None
+        )
+        if self.final_verdict == Verdict.ALLOW and self.outcome == Outcome.ALLOW and not pinned:
+            raise ValueError("ALLOW must be pinned (version + sha256, or a Hugging Face revision) to be meaningful (TOCTOU)")
         return self
