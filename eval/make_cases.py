@@ -13,6 +13,7 @@ three classes stay reproducible and so a fresh clone has a runnable benchmark.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from datetime import UTC, datetime, timedelta
@@ -392,29 +393,77 @@ def build_malicious() -> list[dict[str, Any]]:
 PROVENANCE_PATH = CASES_DIR / "malicious.provenance.json"
 
 
+def holds_real_data(path: Path) -> str | None:
+    """Why this file must not be regenerated, or None when it is safe to write.
+
+    This generator writes fixtures: invented dates, invented hashes, and for
+    the malicious class invented advisories. Running it over a file that has
+    since been filled from a real source throws that work away silently, and
+    the next benchmark reports numbers about placeholders. It happened once,
+    to 50 OSV advisories.
+
+    Two signals mean a file is no longer fixtures: eval.fetch_osv_malicious
+    leaves a provenance file, and eval.verify_labels stamps each case it
+    confirmed with verified_at.
+    """
+    if path.name == "malicious.jsonl" and PROVENANCE_PATH.exists():
+        return f"{PROVENANCE_PATH.name} present, so these are real OSV advisories"
+    if not path.exists():
+        return None
+
+    stamped = 0
+    total = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        total += 1
+        try:
+            if json.loads(line).get("verified_at"):
+                stamped += 1
+        except json.JSONDecodeError:
+            continue
+    if stamped:
+        return f"{stamped} of {total} cases carry verified_at from eval.verify_labels"
+    return None
+
+
 def main() -> int:
     # Windows consoles default to a legacy codepage; the prose below is UTF-8.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    CASES_DIR.mkdir(parents=True, exist_ok=True)
-    files = [
-        ("benign.jsonl", build_benign()),
-        ("hallucinated.jsonl", build_hallucinated()),
-        ("typosquat.jsonl", build_typosquat()),
-    ]
-    # Do not overwrite real advisories with placeholders. Once
-    # eval.fetch_osv_malicious has run it leaves a provenance file behind, and
-    # regenerating over the top of it would silently throw away fetched data.
-    if PROVENANCE_PATH.exists():
-        print(f"malicious.jsonl: left alone ({PROVENANCE_PATH.name} present, real OSV records)")
-    else:
-        files.insert(1, ("malicious.jsonl", build_malicious()))
 
-    for filename, rows in files:
-        with (CASES_DIR / filename).open("w", encoding="utf-8", newline="\n") as fh:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="regenerate even over verified data, discarding what was fetched",
+    )
+    args = parser.parse_args()
+
+    CASES_DIR.mkdir(parents=True, exist_ok=True)
+    builders = [
+        ("benign.jsonl", build_benign),
+        ("malicious.jsonl", build_malicious),
+        ("hallucinated.jsonl", build_hallucinated),
+        ("typosquat.jsonl", build_typosquat),
+    ]
+
+    skipped = 0
+    for filename, build in builders:
+        path = CASES_DIR / filename
+        reason = None if args.force else holds_real_data(path)
+        if reason is not None:
+            print(f"{filename}: left alone ({reason})")
+            skipped += 1
+            continue
+        rows = build()
+        with path.open("w", encoding="utf-8", newline="\n") as fh:
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-        print(f"{filename}: {len(rows)} cases")
+        print(f"{filename}: {len(rows)} cases written")
+
+    if skipped and not args.force:
+        print(f"\n{skipped} file(s) kept. Pass --force to overwrite them with fixtures.")
     print("\nPyPI and container images only. No Hugging Face cases exist, so P7")
     print("(hf_pickle) is not covered by this benchmark - see results.md.")
     return 0
