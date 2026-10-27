@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from contracts.contracts import Evidence, EvidenceKind, TargetRef, Verdict
+from contracts.contracts import Ecosystem, Evidence, EvidenceKind, TargetRef, Verdict
 
 POLICY_PATH = Path(__file__).parent / "policy.yaml"
 
@@ -28,8 +28,6 @@ class Rule:
     any_of: frozenset[EvidenceKind]
     requires_no_evidence: bool
     requires_pinned: bool
-    requires_runtime_comparable: bool
-    requires_typosquat_coverage: bool
 
 
 @dataclass(frozen=True)
@@ -60,8 +58,6 @@ def _parse_rule(raw: dict[str, Any]) -> Rule:
         any_of=kinds,
         requires_no_evidence=bool(raw.get("requires_no_evidence")),
         requires_pinned=bool(raw.get("requires_pinned")),
-        requires_runtime_comparable=bool(raw.get("requires_runtime_comparable")),
-        requires_typosquat_coverage=bool(raw.get("requires_typosquat_coverage")),
     )
 
 
@@ -93,22 +89,23 @@ def risk_score(evidence: list[Evidence]) -> float:
 
 
 def is_pinned(target: TargetRef) -> bool:
-    return bool(target.version and target.artifact_sha256)
+    """Same rule as the contract: version + sha256, or a Hugging Face revision."""
+    return bool(target.version and target.artifact_sha256) or (
+        target.ecosystem is Ecosystem.HUGGINGFACE and target.revision is not None
+    )
 
 
 def evaluate(
     target: TargetRef,
     evidence: list[Evidence],
     policy_path: str | None = None,
-    runtime_comparable: bool = True,
-    typosquat_covered: bool = True,
 ) -> PolicyDecision:
     """Evaluate every rule; the strictest match sets the verdict.
 
-    `runtime_comparable` is False when a container tag could not be placed on a
-    known release branch; `typosquat_covered` is False when the ecosystem has no
-    usable popular-name reference set. Either blocks ALLOW without producing a
-    BLOCK: we lack knowledge, not evidence (FR-09).
+    A check that could not run (a floating tag, an image with no floors, an
+    ecosystem with no typosquat reference set) arrives as check_unavailable
+    evidence, which P10 turns into REVIEW. We lack knowledge, not evidence, so
+    it never produces a BLOCK (FR-09).
     """
     rules, version, default = load_policy(policy_path)
     kinds = {e.kind for e in evidence}
@@ -119,13 +116,9 @@ def evaluate(
 
     for rule in rules:
         if rule.requires_no_evidence:
-            # P9: a clean ALLOW needs zero findings of any severity, a pinned
-            # artefact, and a runtime we could actually place against a floor.
+            # P9: a clean ALLOW needs zero findings of any severity and a pinned
+            # artefact. A check that did not run is itself a finding (P10).
             if evidence or (rule.requires_pinned and not pinned):
-                continue
-            if rule.requires_runtime_comparable and not runtime_comparable:
-                continue
-            if rule.requires_typosquat_coverage and not typosquat_covered:
                 continue
         elif not (rule.any_of & kinds):
             continue
