@@ -1,1 +1,62 @@
-{}
+{
+  "_comment": "Fault-injection fixtures. Each case makes one upstream fail and asserts the pipeline degrades to REVIEW rather than ALLOW.",
+  "cases": [
+    {
+      "id": "fault-pypi-timeout",
+      "failing_stage": "pypi",
+      "fault": "timeout",
+      "target": "pip install requests==2.31.0",
+      "expected_verdict": "REVIEW",
+      "notes": "A clean, pinned package would be ALLOW. With the registry unreachable we cannot prove it, so the gate holds."
+    },
+    {
+      "id": "fault-osv-5xx",
+      "failing_stage": "osv",
+      "fault": "http_503",
+      "target": "pip install requests==2.31.0",
+      "expected_verdict": "REVIEW",
+      "notes": "Without OSV we cannot rule out a MAL- record."
+    },
+    {
+      "id": "fault-osv-timeout-keeps-hard-block",
+      "failing_stage": "osv",
+      "fault": "timeout",
+      "target": "pip install nosuchpackage-xyz",
+      "expected_verdict": "BLOCK",
+      "preexisting_evidence": ["not_found"],
+      "notes": "The hard deterministic evidence was already collected; a later failure does not soften it."
+    },
+    {
+      "id": "fault-huggingface-malformed-json",
+      "failing_stage": "huggingface",
+      "fault": "non_json_body",
+      "target": "org/model",
+      "expected_verdict": "REVIEW",
+      "notes": "A malformed body is an error, not an absence of pickle files."
+    },
+    {
+      "id": "fault-tavily-unavailable",
+      "failing_stage": "tavily",
+      "fault": "timeout",
+      "target": "pip install requests==2.31.0",
+      "expected_verdict": "ALLOW",
+      "notes": "Tavily is untrusted and soft-only. Losing it must not change a deterministic ALLOW."
+    },
+    {
+      "id": "fault-token-factory-down",
+      "failing_stage": "token_factory",
+      "fault": "http_500",
+      "target": "pip install reqeusts",
+      "expected_verdict": "REVIEW",
+      "notes": "No model means no explanation, but the deterministic evidence and verdict stand."
+    },
+    {
+      "id": "fault-policy-file-missing",
+      "failing_stage": "policy",
+      "fault": "file_missing",
+      "target": "pip install requests==2.31.0",
+      "expected_verdict": "REVIEW",
+      "notes": "An unloadable policy can never be read as permission."
+    }
+  ]
+}
