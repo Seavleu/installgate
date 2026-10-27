@@ -17,6 +17,9 @@ dependencies = [
   "httpx",
   "pyyaml",
   "rapidfuzz",
+  # PEP 440 comparison, so an OSV record scoped to 1.82.7 does not match
+  # 1.82.70. Already present transitively; declared now that we rely on it.
+  "packaging",
   "openai",
   "mcp",
   "typer",

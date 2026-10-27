@@ -229,19 +229,147 @@ def check_maintainers(
     )
 
 
+def _same_version(left: str, right: str) -> bool:
+    """Compare two versions, tolerating `1.0` against `1.0.0` where possible."""
+    try:
+        from packaging.version import InvalidVersion, Version
+    except ImportError:  # pragma: no cover - packaging ships with the toolchain
+        return left.strip() == right.strip()
+    try:
+        return Version(left) == Version(right)
+    except InvalidVersion:
+        return left.strip() == right.strip()
+
+
+def _parse_version(raw: str) -> Any | None:
+    try:
+        from packaging.version import InvalidVersion, Version
+    except ImportError:  # pragma: no cover - packaging ships with the toolchain
+        return None
+    try:
+        return Version(raw)
+    except InvalidVersion:
+        return None
+
+
+def _range_covers(rng: dict[str, Any], version: str | None) -> bool | None:
+    """Evaluate one OSV range against a version.
+
+    The overwhelmingly common shape for a malicious package is a single
+    `introduced: "0"` with no fix: the project was malicious from its first
+    release, so every version is covered and no comparison is needed. Treating
+    that as undecided downgrades a real BLOCK to REVIEW.
+    """
+    events = rng.get("events") or []
+    introduced = [str(e["introduced"]) for e in events if "introduced" in e]
+    closing = [
+        str(e.get("fixed") or e.get("last_affected"))
+        for e in events
+        if "fixed" in e or "last_affected" in e
+    ]
+
+    if not closing and "0" in introduced:
+        return True
+    if version is None:
+        return None
+
+    current = _parse_version(version)
+    if current is None:
+        return None
+
+    # Pair each introduced with the next closing event, in order.
+    lower = _parse_version(introduced[0]) if introduced and introduced[0] != "0" else None
+    if introduced and introduced[0] != "0" and lower is None:
+        return None
+    if lower is not None and bool(current < lower):
+        return False
+    if not closing:
+        return True
+
+    upper_raw = closing[0]
+    upper = _parse_version(upper_raw)
+    if upper is None:
+        return None
+    is_fixed = any("fixed" in e for e in events)
+    return bool(current < upper) if is_fixed else bool(current <= upper)
+
+
+def record_covers(record: dict[str, Any], version: str | None) -> bool | None:
+    """Does this advisory cover `version`? None when it cannot be decided.
+
+    True  - the record names this version, covers the whole project, or has a
+            range open from the first release.
+    False - the record scopes itself and this release falls outside.
+    None  - the version is unknown, or a range we cannot order. Undecided must
+            never read as clean.
+    """
+    if record.get("whole_package"):
+        return True
+
+    versions = [str(v) for v in (record.get("versions") or [])]
+    if version is not None and versions and any(_same_version(version, v) for v in versions):
+        return True
+
+    verdicts = [_range_covers(r, version) for r in (record.get("ranges") or [])]
+    if any(v is True for v in verdicts):
+        return True
+    if any(v is None for v in verdicts):
+        return None
+
+    if version is None:
+        return None
+    if versions or verdicts:
+        return False
+    return None
+
+
 def check_osv_malicious(
     target: TargetRef, facts: dict[str, Any], builder: EvidenceBuilder
 ) -> Evidence | None:
-    """P2: OSV holds a MAL- record. Hard, and the strongest signal we have."""
+    """P2: OSV holds a MAL- record covering this release.
+
+    A MAL- record is usually scoped to particular versions. `litellm` carries
+    MAL-2026-2144 for three releases out of hundreds, so matching on the name
+    alone would hard-block every clean version of a widely used package.
+
+    Severity carries how certain the match is, and the policy turns an
+    uncertain one into REVIEW rather than BLOCK:
+      hard - the record covers this exact version, or the whole project
+      soft - a record exists for the name but this install cannot be placed in
+             it: nothing is pinned yet, or the record uses version ranges
+      none - the record names versions and this release is not among them
+    """
     if not facts.get("malicious"):
         return None
+
+    records = facts.get("mal_records")
+    if not records:
+        # Facts from an older cache or a hand-written fixture carry no version
+        # detail, so a name match is the whole of what we know.
+        records = [{"id": i, "whole_package": True} for i in (facts.get("mal_ids") or [])]
+
+    verdicts = [(r, record_covers(r, target.version)) for r in records]
+    covering = [r for r, covered in verdicts if covered is True]
+    undecided = [r for r, covered in verdicts if covered is None]
+
+    matched = covering or undecided
+    if not matched:
+        return None
+
     return builder.build(
         EvidenceKind.OSV_MALICIOUS,
         source="osv",
         trust="deterministic",
-        severity="hard",
+        severity="hard" if covering else "soft",
         target=target,
-        observed={"mal_ids": facts.get("mal_ids") or []},
+        observed={
+            "mal_ids": sorted(str(r.get("id")) for r in matched),
+            "version_checked": target.version,
+            "affected_versions": sorted(
+                {str(v) for r in matched for v in (r.get("versions") or [])}
+            ),
+            "match": "version_covered" if covering else "version_undetermined",
+        },
         source_url="https://api.osv.dev/v1/query",
     )
 

@@ -65,6 +65,7 @@ from typing import Any
 import httpx
 from contracts.contracts import Ecosystem
 from engine.checks import normalize_name
+from engine.clients.osv import affected_spec
 
 CASES_DIR = Path(__file__).parent / "cases"
 PROVENANCE_PATH = CASES_DIR / "malicious.provenance.json"
@@ -227,13 +228,18 @@ def to_case(
         return None
 
     published = str(record.get("published") or record.get("modified") or "")
+    spec = affected_spec(record, name)
+    # Pin to a release the advisory actually names. With an arbitrary version
+    # the record would not cover it and P2 would correctly decline to fire,
+    # so the case would test nothing.
+    affected_version = spec["versions"][0] if spec["versions"] else None
     if simulate:
         # A plausible pre-removal shape: the package existed, was days old, and
         # had one unknown maintainer. Dates are anchored to the advisory itself.
         anchor = _parse(published) or datetime.now(UTC)
         facts = {
             "exists": True,
-            "latest_version": "0.0.1",
+            "latest_version": affected_version or "0.0.1",
             "latest_sha256": SHA_PLACEHOLDER,
             "first_upload": (anchor - timedelta(days=3)).isoformat(),
             "latest_upload": (anchor - timedelta(days=3)).isoformat(),
@@ -248,10 +254,23 @@ def to_case(
         "id": f"malicious-{index:03d}",
         "label": "malicious",
         "ecosystem": "pypi",
-        "command": f"pip install {name}",
+        # Pin whichever release the advisory names, live case or simulated.
+        # Unpinned, a live package whose current release is clean resolves to
+        # that clean release and is correctly not blocked — which tests the
+        # resolver, not the advisory.
+        "command": (
+            f"pip install {name}=={affected_version}" if affected_version else f"pip install {name}"
+        ),
         "expected_verdict": "BLOCK",
         "facts": facts,
-        "osv": {"malicious": True, "mal_ids": [str(mal_id)]},
+        "osv": {
+            "malicious": True,
+            "mal_ids": [str(mal_id)],
+            # Which releases the advisory actually names. Without this the
+            # check can only match the package name, which hard-blocks every
+            # clean version of a project that was compromised once.
+            "mal_records": [spec],
+        },
         "registry_state": registry_state,
         # The advisory is real either way; these registry facts are not. A
         # simulated case invents them outright, and a live case only presumes
