@@ -31,9 +31,10 @@ TYPOSQUAT_MIN_LENGTH = 5
 # decision: the file was meant to be there and is short, so the check raises and
 # the pipeline fails closed. A `None` is a deliberate "we do not cover this yet".
 MIN_SNAPSHOT_NAMES: dict[Ecosystem, int | None] = {
-    # 100 while the hand-seeded list is in place; fetch_top_pypi.py raises it to
-    # 4000 when it installs a real snapshot.
-    Ecosystem.PYPI: 100,
+    # A real top-5000 snapshot is in place (see the file header for its source
+    # and date). The bar sits just below it so a truncated or half-written file
+    # fails the check instead of quietly shrinking its coverage.
+    Ecosystem.PYPI: 4000,
     # Cut from this milestone: no vetted popular-name source for npm, so the
     # check is off rather than running against 226 names written from memory.
     Ecosystem.NPM: None,
@@ -43,9 +44,10 @@ MIN_SNAPSHOT_NAMES: dict[Ecosystem, int | None] = {
 # repositories are namespaced, so a flat popular-name list is the wrong tool.
 TYPOSQUAT_ECOSYSTEMS = frozenset({Ecosystem.PYPI, Ecosystem.NPM})
 
+# Dated snapshots, fetched by eval/fetch_top_pypi.py. npm has no entry: the
+# check is switched off for it, so there is nothing to point at.
 _SNAPSHOTS = {
-    Ecosystem.PYPI: "pypi-top5k-2026-10-25.txt",
-    Ecosystem.NPM: "npm-top5k-2026-10-25.txt",
+    Ecosystem.PYPI: "pypi-top5000-2026-10-27.txt",
 }
 
 _SOURCE_FOR = {
