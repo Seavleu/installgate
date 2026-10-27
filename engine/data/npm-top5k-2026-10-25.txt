@@ -1,1 +1,0 @@
-# Kate. Dated npm top-5k snapshot for typosquat. See README.md.
