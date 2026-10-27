@@ -456,17 +456,32 @@ def render(results: list[CaseResult], summary: dict[str, Any]) -> str:
         for r in summary["errors"][:20]:
             lines.append(f"- `{r.id}`: {r.error}")
 
+    simulated = [r for r in results if r.registry_state == "simulated_pre_removal"]
+    if summary["placeholders"] or simulated:
+        lines += ["", "## What these numbers do not show", ""]
     if summary["placeholders"]:
         lines += [
+            f"**{len(summary['placeholders'])} of {summary['total']} cases have "
+            "registry facts that were never confirmed against a live source.** The "
+            "dates, versions and hashes in them are written by `eval.make_cases` or "
+            "presumed by `eval.fetch_osv_malicious`, not read from PyPI. Run "
+            "`eval.verify_labels` to replace them; until then these are figures about "
+            "fixtures, not about packages.",
             "",
-            "## Not yet reportable",
+        ]
+    if simulated:
+        lines += [
+            f"**{len(simulated)} malicious cases describe a package as it was before "
+            "the registry removed it.** Those facts are a simulation, written so that "
+            "P2 (`osv_malicious`) is the rule under test instead of P1 (`not_found`). "
+            "The advisory ids are real; the registry state is not. Recall on this "
+            "group says the OSV path is wired up, not that it caught anything in the "
+            "wild.",
             "",
-            f"**{len(summary['placeholders'])} cases carry placeholder data** and are not "
-            "evidence of real-world recall. Their `mal_ids` are invented identifiers, not "
-            "records from osv.dev. Replace them with real OSV `MAL-` ids before quoting "
-            "block recall anywhere outside this repository.",
-            "",
-            "Affected: "
+        ]
+    if summary["placeholders"]:
+        lines += [
+            "Unconfirmed: "
             + ", ".join(f"`{p}`" for p in summary["placeholders"][:10])
             + (
                 f" … and {len(summary['placeholders']) - 10} more"
@@ -509,7 +524,10 @@ def main() -> int:
     )
     print("NOTE: deterministic-only run; model-call and cost figures are not meaningful")
     if summary["placeholders"]:
-        print(f"WARNING: {len(summary['placeholders'])} cases use placeholder OSV ids")
+        print(
+            f"WARNING: {len(summary['placeholders'])} cases have unconfirmed registry facts; "
+            "run eval.verify_labels"
+        )
     print(f"wrote {RESULTS_PATH}")
     return 0
 

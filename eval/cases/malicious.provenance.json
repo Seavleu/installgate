@@ -1,0 +1,19 @@
+{
+  "source_repo": "ossf/malicious-packages",
+  "source_url": "https://github.com/ossf/malicious-packages",
+  "branch": "main",
+  "commit_sha": "323d867a549e2bbdbffe8fadfb24919d049ef12d",
+  "record_dir": "osv/malicious/pypi",
+  "records_available": 11933,
+  "records_attempted": 60,
+  "records_written": 50,
+  "simulated_pre_removal": 25,
+  "live_unverified": 25,
+  "dropped": {
+    "withdrawn": 0,
+    "duplicate_package": 0,
+    "unreadable": 0
+  },
+  "fetched_at": "2026-10-27T07:58:14.157553+00:00",
+  "note": "OSV advisory metadata only. No package artefacts were downloaded."
+}

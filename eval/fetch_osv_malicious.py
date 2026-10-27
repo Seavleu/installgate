@@ -252,7 +252,11 @@ def to_case(
         "facts": facts,
         "osv": {"malicious": True, "mal_ids": [str(mal_id)]},
         "registry_state": registry_state,
-        "verified_source": not simulate,
+        # The advisory is real either way; these registry facts are not. A
+        # simulated case invents them outright, and a live case only presumes
+        # the package is gone. eval.verify_labels sets this to true for the
+        # live ones once it has actually asked PyPI.
+        "verified_source": False,
         "provenance": {
             "repo": REPO,
             "commit_sha": commit_sha,
