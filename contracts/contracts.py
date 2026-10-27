@@ -1,5 +1,10 @@
 """InstallGate data contracts (Pydantic v2).
 
+FROZEN as of gate G1 (2026-10-26). Field names, types, and enum values below
+are final. Renaming, adding, or removing any of them requires both engineers
+on the PR (see contracts/README.md and AGENTS.md section 9) — the API, CLI,
+and UI all read these field names and must stay in sync.
+
 Design rules enforced in code, not in prose:
   * Evidence is frozen and content-hashed (immutable once emitted).
   * final_verdict == max(policy_verdict, llm_verdict) on the ALLOW<REVIEW<BLOCK lattice.
