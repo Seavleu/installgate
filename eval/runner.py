@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,7 +55,21 @@ def _parse_stamp(raw: Any) -> datetime | None:
         return None
 
 
-CASE_FILES = ["benign.jsonl", "malicious.jsonl", "hallucinated.jsonl", "typosquat.jsonl"]
+CASE_FILES = [
+    "benign.jsonl",
+    "malicious.jsonl",
+    "hallucinated.jsonl",
+    "typosquat.jsonl",
+    "huggingface.jsonl",
+]
+
+# Report order. Any other label a case file introduces is appended after these.
+LABELS = ("benign", "malicious", "hallucinated", "typosquat", "hf_pickle")
+
+
+def ordered_labels(labels: Iterable[str]) -> list[str]:
+    seen = set(labels)
+    return [x for x in LABELS if x in seen] + sorted(seen - set(LABELS))
 
 
 VERDICTS = ("ALLOW", "REVIEW", "BLOCK")
@@ -396,8 +411,8 @@ def render(results: list[CaseResult], summary: dict[str, Any]) -> str:
         "| Class | Deciding rule | Every rule that fired |",
         "| --- | --- | --- |",
     ]
-    for label in ("benign", "malicious", "hallucinated", "typosquat"):
-        bucket = summary["attribution"].get(label)
+    for label in ordered_labels(summary["attribution"]):
+        bucket = summary["attribution"][label]
         if not bucket:
             continue
         deciding = ", ".join(
@@ -416,8 +431,8 @@ def render(results: list[CaseResult], summary: dict[str, Any]) -> str:
         "| Class | Cases | Passed | Failed | Label source |",
         "| --- | --- | --- | --- | --- |",
     ]
-    for label in ("benign", "malicious", "hallucinated", "typosquat"):
-        group = by_label.get(label, [])
+    for label in ordered_labels(by_label):
+        group = by_label[label]
         if not group:
             continue
         passed = sum(1 for r in group if r.passed)
@@ -480,6 +495,17 @@ def render(results: list[CaseResult], summary: dict[str, Any]) -> str:
             "| --- | --- |",
         ]
         lines += [f"| `{r.id}` | {r.label_conflict} |" for r in conflicts[:20]]
+
+    lines += [
+        "",
+        "## Known limits",
+        "",
+        "- Floating base tags (e.g. `python:3.12-slim`) go to REVIEW by design: a tag "
+        "without a patch release cannot be shown to meet its floor (`check_unavailable`, "
+        "rule P10).",
+        "- 2 of 30 generated names were registered on PyPI within the last 3 months; "
+        "removed from the set.",
+    ]
 
     simulated = [r for r in results if r.registry_state == "simulated_pre_removal"]
     if summary["placeholders"] or simulated:

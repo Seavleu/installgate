@@ -65,6 +65,9 @@ PICKLE_ONLY_CANDIDATES = [
     "xlnet/xlnet-base-cased",
     "albert/albert-base-v2",
     "openai/clip-vit-base-patch32",
+    "facebook/opt-1.3b",
+    "facebook/opt-2.7b",
+    "openai/clip-vit-large-patch14",
 ]
 
 UNPINNED = [
