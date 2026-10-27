@@ -29,9 +29,16 @@ uv run --no-sync pytest tests/test_router.py
 
 Does not edit `contracts/`. T03 is still open.
 
+## T08 (this task)
+
+`search` in `tavily.py`. The query is the package name. Results come from allowlisted security domains, last 30 days. Each hit is `trust="retrieved_untrusted"` and `severity="soft"`. A page that says "hard" cannot change that. An off-list URL is dropped. A missing key or an HTTP error returns no evidence and `failed_closed=True`.
+
+```bash
+uv run --no-sync pytest tests/test_tavily.py -v
+```
+
 ## Later
 
 | File | Task |
 | --- | --- |
-| `tavily.py` | T08 untrusted web evidence, never hard |
 | `prompts/rank_substitute.txt` | T10 rank by candidate id only |
