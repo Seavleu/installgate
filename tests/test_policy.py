@@ -1,4 +1,4 @@
-"""Policy P1-P9: the strictest match wins, and BLOCK needs hard deterministic evidence."""
+"""Policy P1-P10: the strictest match wins, and BLOCK needs hard deterministic evidence."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pytest
 from contracts.contracts import Ecosystem, EvidenceKind, TargetRef, Verdict
 from engine import stage1
 from engine.evidence import EvidenceBuilder
+from engine.parsers import parse_dockerfile, parse_npm
 from engine.policy import evaluate, risk_score
 
 NOW = datetime(2026, 10, 26, tzinfo=UTC)
@@ -130,18 +131,75 @@ def test_p9_regression_clean_pinned_package_reaches_allow_end_to_end():
     assert result.evidence == []
 
 
-def test_unlisted_runtime_branch_blocks_allow_without_blocking_the_install():
+def _run_one(target, facts=None):
+    return stage1.run(target, facts or {"exists": True}, now=NOW)
+
+
+def _docker(tag, sha="d" * 64, name="php"):
+    return TargetRef(ecosystem=Ecosystem.DOCKER, name=name, version=tag, artifact_sha256=sha)
+
+
+def test_unlisted_runtime_branch_is_review_with_one_cited_evidence():
     # FR-09: no floor for the branch is absence of knowledge, so REVIEW, not BLOCK.
-    pinned_image = TargetRef(
-        ecosystem=Ecosystem.DOCKER, name="php", version="8.9.1", artifact_sha256="d" * 64
-    )
-    decision = evaluate(pinned_image, [], runtime_comparable=False)
-    assert decision.verdict is Verdict.REVIEW
-    assert "P9" not in decision.matched_rules
+    result = _run_one(_docker("8.9.1"))
+    assert result.verdict is Verdict.REVIEW
+    assert result.decision.matched_rules == ("P10",)
+    assert [e.id for e in result.evidence] == ["EV-1"]
+    assert result.evidence[0].observed["reason"] == "no_floor_for_branch"
 
 
 def test_comparable_runtime_still_reaches_allow():
-    pinned_image = TargetRef(
-        ecosystem=Ecosystem.DOCKER, name="php", version="8.2.35", artifact_sha256="d" * 64
+    result = _run_one(_docker("8.2.35"))
+    assert result.verdict is Verdict.ALLOW
+    assert result.evidence == []
+
+
+def test_php_8_3_apache_is_review_not_a_silent_pass():
+    ref = parse_dockerfile("FROM php:8.3-apache\n")[0]
+    result = _run_one(ref)
+    assert result.verdict is Verdict.REVIEW
+    assert result.decision.matched_rules == ("P10",)
+    assert len(result.evidence) == 1
+    assert result.evidence[0].observed["reason"] == "floating_tag"
+
+
+def test_npm_lodash_is_review_with_one_cited_evidence():
+    ref = parse_npm("npm install lodash@4.17.21")[0]
+    result = _run_one(ref, {"exists": True, "latest_version": "4.17.21", "latest_sha256": "e" * 64})
+    assert result.verdict is Verdict.REVIEW
+    assert result.decision.matched_rules == ("P10",)
+    assert len(result.evidence) == 1
+    assert result.evidence[0].observed["reason"] == "typosquat_unsupported_ecosystem"
+
+
+def test_clean_pinned_pypi_package_is_still_allow_with_zero_evidence():
+    ref = TargetRef(
+        ecosystem=Ecosystem.PYPI, name="requests", version="2.32.3", artifact_sha256="a" * 64
     )
-    assert evaluate(pinned_image, [], runtime_comparable=True).verdict is Verdict.ALLOW
+    result = _run_one(
+        ref,
+        {
+            "exists": True,
+            "latest_version": "2.32.3",
+            "latest_sha256": "a" * 64,
+            "first_upload": "2012-01-01T00:00:00+00:00",
+            "latest_upload": "2024-05-29T00:00:00+00:00",
+        },
+    )
+    assert result.verdict is Verdict.ALLOW
+    assert result.decision.matched_rules == ("P9",)
+    assert result.evidence == []
+
+
+def test_every_unavailable_reason_reviews_and_none_can_block():
+    cases = {
+        "no_floor_for_branch": _docker("8.9.1"),
+        "floating_tag": _docker("latest"),
+        "digest_only": TargetRef(ecosystem=Ecosystem.DOCKER, name="php", artifact_sha256="a" * 64),
+        "image_not_in_table": _docker("1.0.0", name="vendor-image"),
+    }
+    for reason, ref in cases.items():
+        result = _run_one(ref)
+        assert result.verdict is Verdict.REVIEW, reason
+        assert [e.observed["reason"] for e in result.evidence] == [reason]
+        assert all(e.severity == "soft" for e in result.evidence)

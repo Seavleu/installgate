@@ -1,8 +1,8 @@
-# InstallGate policy. Rules P1-P9; every rule is evaluated and the strictest match wins.
+# InstallGate policy. Rules P1-P10; every rule is evaluated and the strictest match wins.
 #
 # A rule fires when ANY of its evidence kinds is present (plus `requires_all` when set).
 # BLOCK rules may only cite hard, deterministic evidence — the validator re-checks this.
-version: "2026-10-26.1"
+version: "2026-10-28.1"
 
 rules:
   - id: P1
@@ -62,20 +62,27 @@ rules:
     rationale: Account takeover shows up as a new maintainer shipping quickly.
 
   - id: P9
-    description: No evidence, artefact pinned, and every check actually ran
+    description: No evidence at all and the artefact is pinned
     verdict: ALLOW
     requires_no_evidence: true
     requires_pinned: true
-    requires_runtime_comparable: true
-    requires_typosquat_coverage: true
     rationale: >
       An unpinned ALLOW is meaningless: the resolved artefact can change between
       the check and the install (TOCTOU). Unpinned with no findings is a REVIEW.
-      The same holds for a check that did not run. A base image we cannot place
-      on a known release branch, and an ecosystem with no popular-name reference
-      set, both leave us without knowledge rather than with a clean result
-      (FR-09). None of these is a BLOCK — an ALLOW here would be the gate
-      claiming it checked something it never looked at.
+      Pinned means version + sha256, or a Hugging Face revision. A check that
+      could not run is not silence: it is recorded as check_unavailable evidence
+      (P10), so it can never satisfy "no evidence".
+
+  - id: P10
+    description: A check could not run (check_unavailable)
+    verdict: REVIEW
+    any_of: [check_unavailable]
+    rationale: >
+      An absence of knowledge, not evidence of harm (FR-09). The reason is in
+      observed["reason"]: no_floor_for_branch, floating_tag, digest_only,
+      image_not_in_table (Dockerfile floors) or typosquat_unsupported_ecosystem
+      (npm). The evidence is soft, so P10 can never produce a BLOCK. An ALLOW
+      here would be the gate claiming it checked something it never looked at.
 
 # Fallback when no rule matched: an unpinned target with no findings.
 default_verdict: REVIEW

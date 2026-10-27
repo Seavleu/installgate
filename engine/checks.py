@@ -123,6 +123,24 @@ def load_runtime_floors() -> dict[str, dict[str, str]]:
     return out
 
 
+def _check_unavailable(
+    builder: EvidenceBuilder, target: TargetRef, reason: str, detail: str, **extra: Any
+) -> Evidence:
+    """Soft evidence that a check could not run, so a silent gap cannot read as clean.
+
+    `reason` must be one of CHECK_UNAVAILABLE_REASONS; the contract enforces it.
+    The records come from our own tables (policy_yaml), not from a registry.
+    """
+    return builder.build(
+        EvidenceKind.CHECK_UNAVAILABLE,
+        source="policy_yaml",
+        trust="deterministic",
+        severity="soft",
+        target=target,
+        observed={"reason": reason, "detail": detail, **extra},
+    )
+
+
 def check_exists(
     target: TargetRef, facts: dict[str, Any], builder: EvidenceBuilder
 ) -> Evidence | None:
@@ -454,7 +472,8 @@ class TyposquatResult:
 
     `covered` is False when the ecosystem has no usable reference set. As with
     the runtime floors, that is an absence of knowledge: it must not read as a
-    clean result, so it blocks ALLOW without producing a BLOCK.
+    clean result, so `evidence` carries a soft check_unavailable record (P10
+    turns it into REVIEW) and never a BLOCK.
     """
 
     covered: bool
@@ -471,7 +490,10 @@ def check_typosquat(
     """P5 typosquat (soft), and P4 typosquat on a days-old project (hard, derived)."""
     uncovered = typosquat_coverage(target.ecosystem)
     if uncovered is not None:
-        return TyposquatResult(covered=False, evidence=[], reason=uncovered)
+        unavailable = _check_unavailable(
+            builder, target, "typosquat_unsupported_ecosystem", uncovered
+        )
+        return TyposquatResult(covered=False, evidence=[unavailable], reason=uncovered)
 
     match = nearest_popular_name(target.name, target.ecosystem)
     if match is None:
@@ -572,7 +594,8 @@ class RuntimeFloorResult:
 
     `comparable` is the half that matters for FR-09: when we cannot place a tag
     on a known release branch we have an absence of knowledge, not evidence of an
-    unpatched runtime. The caller must turn that into REVIEW, never BLOCK.
+    unpatched runtime. `evidence` is then a soft check_unavailable record, which
+    P10 turns into REVIEW, never BLOCK.
     """
 
     comparable: bool
@@ -615,32 +638,45 @@ def check_runtime_floor(
     image = target.name.rsplit("/", 1)[-1].lower()
     branches = floors.get(image)
 
+    def unavailable(code: str, detail: str) -> RuntimeFloorResult:
+        record = _check_unavailable(builder, target, code, detail, image=image, tag=target.version)
+        return RuntimeFloorResult(False, record, detail)
+
     if not target.version:
-        return RuntimeFloorResult(
-            False, None, "digest-only reference: no tag to compare against a floor"
+        return unavailable(
+            "digest_only", "digest-only reference: no tag to compare against a floor"
         )
     if not branches:
-        return RuntimeFloorResult(False, None, f"no patched floors recorded for {image!r}")
+        return unavailable("image_not_in_table", f"no patched floors recorded for {image!r}")
 
     actual = _version_tuple(target.version)
     if actual is None:
-        return RuntimeFloorResult(
-            False, None, f"floating tag {target.version!r} carries no comparable version"
+        return unavailable(
+            "floating_tag", f"floating tag {target.version!r} carries no comparable version"
         )
 
     matched = _match_branch(actual, branches)
     if matched is None:
-        return RuntimeFloorResult(
-            False, None, f"{image} {target.version!r} is on a branch with no recorded floor"
+        return unavailable(
+            "no_floor_for_branch",
+            f"{image} {target.version!r} is on a branch with no recorded floor",
         )
 
     branch, floor = matched
     required = _version_tuple(floor)
     if required is None:
-        return RuntimeFloorResult(False, None, f"floor {floor!r} for branch {branch} is unusable")
+        return unavailable(
+            "no_floor_for_branch", f"floor {floor!r} for branch {branch} is unusable"
+        )
 
     depth = min(len(actual), len(required))
     if actual[:depth] >= required[:depth]:
+        if len(actual) < len(required):
+            # `8.3` or `8.3-apache` floats to whatever patch the registry serves
+            # today, so it cannot be shown to be at or above the floor.
+            return unavailable(
+                "floating_tag", f"tag {target.version!r} does not pin a patch release"
+            )
         return RuntimeFloorResult(True, None, "at or above the branch floor", branch, floor)
 
     evidence = builder.build(

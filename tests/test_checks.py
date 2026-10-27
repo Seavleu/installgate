@@ -173,31 +173,44 @@ def test_a_newer_branch_is_judged_against_its_own_floor():
     assert result.evidence.observed["branch"] == "8.3"
 
 
+def assert_unavailable(evidence, reason):
+    assert evidence is not None
+    assert evidence.kind is EvidenceKind.CHECK_UNAVAILABLE
+    assert evidence.severity == "soft"
+    assert evidence.observed["reason"] == reason
+
+
 def test_unlisted_branch_is_not_comparable_and_never_blocks():
     result = floor("8.9.1")
     assert result.comparable is False
-    assert result.evidence is None
+    assert_unavailable(result.evidence, "no_floor_for_branch")
     assert "no recorded floor" in result.reason
 
 
 def test_image_with_no_floors_is_not_comparable():
     result = floor("1.0.0", image="some-vendor-image")
     assert result.comparable is False
-    assert result.evidence is None
+    assert_unavailable(result.evidence, "image_not_in_table")
 
 
 def test_floating_tag_is_not_comparable():
     result = floor("latest")
     assert result.comparable is False
-    assert result.evidence is None
+    assert_unavailable(result.evidence, "floating_tag")
     assert "floating tag" in result.reason
+
+
+def test_minor_only_tag_cannot_be_shown_to_meet_the_floor():
+    result = floor("8.3-apache")
+    assert result.comparable is False
+    assert_unavailable(result.evidence, "floating_tag")
 
 
 def test_digest_only_reference_is_not_comparable():
     ref = TargetRef(ecosystem=Ecosystem.DOCKER, name="php", artifact_sha256="a" * 64)
     result = checks.check_runtime_floor(ref, EvidenceBuilder(), floors=PHP_FLOORS)
     assert result.comparable is False
-    assert result.evidence is None
+    assert_unavailable(result.evidence, "digest_only")
 
 
 def test_evidence_ids_increment_within_a_request():
@@ -212,7 +225,8 @@ def test_npm_typosquat_check_is_switched_off_not_silently_clean():
         target("lodahs", Ecosystem.NPM), {"exists": True}, EvidenceBuilder(), now=NOW
     )
     assert out.covered is False
-    assert out.evidence == []
+    assert len(out.evidence) == 1
+    assert_unavailable(out.evidence[0], "typosquat_unsupported_ecosystem")
     assert "disabled for npm" in (out.reason or "")
 
 
