@@ -1,9 +1,10 @@
 # Patched runtime floors for Dockerfile base images (rule P3).
 #
-# UNVERIFIED — every number below is a placeholder. Confirm each against the
-# vendor's own release notes (php.net, nodejs.org, python.org), not a secondary
-# report, before the demo. The CVE numbers go in the video, so a wrong floor is
-# a public claim (risk R6).
+# Only the php floors are verified (see `verified` and `source` under php). Every
+# other image is still UNVERIFIED: its numbers are placeholders. Confirm each
+# against the vendor's own release notes (nodejs.org, python.org, ...), not a
+# secondary report, before the demo. The CVE numbers go in the video, so a wrong
+# floor is a public claim (risk R6).
 #
 # Floors are per release branch, not per image. A single floor cannot express a
 # project that patches several branches in parallel: with one floor of 8.2.35,
@@ -15,11 +16,17 @@
 # Such a tag, a floating tag (`latest`, `bookworm`) and a digest-only reference
 # all resolve to REVIEW (FR-09).
 snapshot_date: "2026-10-25"
+# Applies to every image that does not carry its own `verified` below.
 verified: false
 source: "placeholder — replace with vendor release notes and record the URL here"
 
 images:
   php:
+    verified: true
+    source: "https://www.php.net/archive/2026.php"
+    advisory_date: "2026-10-21"
+    cves: ["CVE-2026-109618", "CVE-2026-109619"]
+    # No floor for 8.1 and older: those tags are not comparable and stay REVIEW.
     branches:
       "8.2": "8.2.35"
       "8.3": "8.3.36"
