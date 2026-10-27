@@ -6,6 +6,7 @@ benchmark and the unit tests can drive it from recorded facts with no network.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +16,9 @@ from contracts.contracts import Ecosystem, Evidence, TargetRef, Verdict
 from engine import checks
 from engine.evidence import EvidenceBuilder
 from engine.policy import PolicyDecision, evaluate
+
+# A Hugging Face model sha is a 40-character git commit; anything else is not a pin.
+_GIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 @dataclass(frozen=True)
@@ -32,10 +36,17 @@ def enrich_target(target: TargetRef, facts: dict[str, Any]) -> TargetRef:
     """Attach the resolved version and artefact hash the registry reports.
 
     Without this an otherwise clean package can never reach ALLOW, because P9
-    requires a pinned artefact.
+    requires a pinned artefact. A Hugging Face repo is pinned by git revision
+    instead: the API's model `sha` fills `revision` when the target has none.
     """
     if not facts.get("exists"):
         return target
+
+    if target.ecosystem is Ecosystem.HUGGINGFACE:
+        sha = facts.get("sha")
+        if target.revision is not None or not isinstance(sha, str) or not _GIT_SHA.fullmatch(sha):
+            return target
+        return TargetRef(ecosystem=target.ecosystem, name=target.name, revision=sha)
 
     version = target.version or facts.get("latest_version")
     sha = target.artifact_sha256 or facts.get("latest_sha256")
