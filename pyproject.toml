@@ -25,9 +25,8 @@ dependencies = [
   "typer",
 ]
 
-# Jenny: uncomment when cli.py has main()
-# [project.scripts]
-# installgate = "mcp_server.cli:main"
+[project.scripts]
+installgate = "mcp_server.cli:main"
 
 [project.optional-dependencies]
 dev = [
