@@ -16,7 +16,8 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@contracts": ["../contracts/contracts.ts"]
+      "@contracts": ["../contracts/contracts.ts"],
+      "zod": ["./node_modules/zod"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

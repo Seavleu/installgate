@@ -3,5 +3,6 @@
 @tailwind utilities;
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  @apply bg-stone-100 text-stone-900 antialiased;
+  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
 }
