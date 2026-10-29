@@ -274,6 +274,16 @@ Five benign cases are reviews, and that is the policy working. `fastapi`, `numpy
 - A floating base tag such as `python:3.12-slim` is a review by design.
 - Only the PHP floors are verified against a vendor advisory (2026-10-21). Other image floors in `engine/runtime_floors.yaml` are placeholders.
 
+### Model comparison
+
+A separate live run measures Stage 2. Routed Nemotron and three catalog rivals (`Qwen/Qwen3-30B-A3B-Instruct-2507`, `openai/gpt-oss-120b`, `Qwen/Qwen3-235B-A22B-Instruct-2507`) answer 21 BLOCK and REVIEW cases, with the same frozen Stage 1, the same prompts, and the same validator. Report: [`eval/results-models.md`](eval/results-models.md). Method: [`router/README.md`](router/README.md#model-comparison).
+
+```bash
+LIVE_TESTS=1 uv run python -m router.compare
+```
+
+On 2026-10-29 every system kept the policy verdict on all 21 cases, and no call needed a retry. Routed Nemotron explained all 21 cases (25 cited sentences, none dropped) at a model cost of $0.008. `Qwen/Qwen3-30B-A3B-Instruct-2507` failed closed once and answered ALLOW on 4 REVIEW cases, which the lattice ignored. An earlier run the same day, before `explain.txt` asked for the `EV-n` id inside the sentence text, dropped most sentences in the citation check.
+
 ## Developer feedback
 
 What we would tell the next person who puts a model behind a gate that already has a verdict:
