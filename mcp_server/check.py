@@ -189,7 +189,7 @@ async def check(command: str) -> GateVerdict:
                     failed_closed=state.failed,
                     evidence=evidence,
                     explanation=cited.kept,
-                    dropped_sentences=cited.dropped,
+                    dropped_sentences=cited.dropped + routed.dropped_sentences,
                     next_action=next_action,
                     remediation=remediation,
                     receipt=routed.receipt,

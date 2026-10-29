@@ -12,7 +12,7 @@ from pathlib import Path
 from router.token_factory import TokenFactoryError, smoke
 
 
-def _load_env_file() -> None:
+def load_env_file() -> None:
     """Read `.env` into the process. Existing variables win. Never prints values."""
     path = Path.cwd() / ".env"
     if not path.is_file():
@@ -23,13 +23,15 @@ def _load_env_file() -> None:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
+        if key.startswith("export "):
+            key = key.removeprefix("export ").strip()
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
 
 
 def main() -> None:
-    _load_env_file()
+    load_env_file()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
         results = asyncio.run(smoke())

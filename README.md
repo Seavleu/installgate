@@ -74,10 +74,11 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. The CLI and the API read the process environment, so load it before a live check:
+Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. `installgate check` and `python -m router.smoke` read `.env` from the current directory. A variable already set in the environment wins. The API process does not read that file, so export it before uvicorn, or use Compose, which loads `.env` for the API service:
 
 ```bash
 set -a && source .env && set +a
+uv run uvicorn mcp_server.api:app --port 8000
 ```
 
 A clean allow does not need the model key. A review or a block does, if you want an explanation.
@@ -122,10 +123,23 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The page calls `/api/check`
 
 ### MCP
 
-The tool name is `check_install`. It takes one `command` string and returns the same JSON. It speaks stdio:
+The tool name is `check_install`. It takes one `command` string and returns the same JSON. It speaks stdio, from the repo root, so `uv` can see the project:
 
 ```bash
-uv run python -c "from mcp_server.server import main; main()"
+uv run python -m mcp_server.server
+```
+
+A client such as Cursor registers that command and then calls `check_install` before it installs anything. InstallGate still only returns the verdict.
+
+```json
+{
+  "mcpServers": {
+    "installgate": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "mcp_server.server"]
+    }
+  }
+}
 ```
 
 ### Docker
@@ -259,6 +273,16 @@ Five benign cases are reviews, and that is the policy working. `fastapi`, `numpy
 - npm is not in the benchmark. The npm typosquat check is off, and those installs go to review (`test_npm_lodash_is_review_with_one_cited_evidence` in `tests/test_policy.py`).
 - A floating base tag such as `python:3.12-slim` is a review by design.
 - Only the PHP floors are verified against a vendor advisory (2026-10-21). Other image floors in `engine/runtime_floors.yaml` are placeholders.
+
+### Model comparison
+
+A separate live run measures Stage 2. Routed Nemotron and three catalog rivals (`Qwen/Qwen3-30B-A3B-Instruct-2507`, `openai/gpt-oss-120b`, `Qwen/Qwen3-235B-A22B-Instruct-2507`) answer 21 BLOCK and REVIEW cases, with the same frozen Stage 1, the same prompts, and the same validator. Report: [`eval/results-models.md`](eval/results-models.md). Method: [`router/README.md`](router/README.md#model-comparison).
+
+```bash
+LIVE_TESTS=1 uv run python -m router.compare
+```
+
+On 2026-10-29 every system kept the policy verdict on all 21 cases, and no call needed a retry. Routed Nemotron explained all 21 cases (25 cited sentences, none dropped) at a model cost of $0.008. `Qwen/Qwen3-30B-A3B-Instruct-2507` failed closed once and answered ALLOW on 4 REVIEW cases, which the lattice ignored. An earlier run the same day, before `explain.txt` asked for the `EV-n` id inside the sentence text, dropped most sentences in the citation check.
 
 ## Developer feedback
 

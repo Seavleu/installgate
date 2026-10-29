@@ -155,6 +155,7 @@ async def complete_structured(
     messages: list[dict[str, str]],
     schema: type[TModel],
     extra_body: dict[str, Any] | None = None,
+    temperature: float | None = None,
 ) -> tuple[TModel, StructuredCompletion]:
     """One JSON-schema completion. A bad parse is retried once. HTTP errors fail closed.
 
@@ -164,10 +165,12 @@ async def complete_structured(
     schema_valid = True
     for attempt in (0, 1):
         started = time.perf_counter()
+        decoding: dict[str, Any] = {} if temperature is None else {"temperature": temperature}
         try:
             response = await api.chat.completions.create(
                 model=model,
                 messages=cast(Any, messages),
+                **decoding,
                 response_format=cast(
                     Any,
                     {

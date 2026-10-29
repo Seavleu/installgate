@@ -37,6 +37,18 @@ Does not edit `contracts/`. T03 is still open.
 uv run --no-sync pytest tests/test_tavily.py -v
 ```
 
+## Model comparison
+
+`compare.py` runs routed Nemotron against up to three rivals from the catalog. Stage 1 runs once per case, so every system sees the same policy verdict and `EV-n` ids. Each system goes through the production `route()` and the same validator. Only the model ids change, through `MODEL_*` overrides that `resolve_model_ids` accepts only when the catalog lists them. Temperature is 0. The run stops by whole case at `DAILY_SPEND_CAP_USD`. ALLOW cases never reach a model; five run as a control.
+
+```bash
+uv run python -m router.compare --dry-run          # case plan, no network
+LIVE_TESTS=1 uv run python -m router.compare       # writes eval/results-models.md
+uv run --no-sync pytest tests/test_compare.py      # mocked
+```
+
+Rivals have no listed price, so the report gives their tokens only. It does not overwrite `eval/results.md`, which is Stage 1 only.
+
 ## Later
 
 | File | Task |

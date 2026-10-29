@@ -155,6 +155,28 @@ RECEIVED -> PARSED -> EVIDENCED -> POLICY_SET
 - `ENRICHED` = Tavily search, Nano extraction (can only **add** targets that appear verbatim in the input), Super explanation, Ultra only when policy is REVIEW and `risk_score >= 0.6`.
 - States never move backward.
 
+### One call chain
+
+Three entry points, one orchestrator. `mcp_server/api.py`, `cli.py` and `server.py` call the same function and return one `GateVerdict`. They do not each grow a pipeline.
+
+```text
+parse          engine/parsers.py            command -> TargetRef. No network.
+fetch          engine/clients/*.py          metadata only, through engine/cache.py
+check          engine/checks.py             data in, Evidence out. Does not fetch.
+evidence       engine/evidence.py           EV-n ids, content hash
+policy         engine/policy.py             policy.yaml, strictest of P1-P9
+clean ALLOW    stop                         no model call
+explain        router/                      Tavily, then token_factory, then tiers
+validate       validator/                   citations, lattice, failclosed
+substitute     remediate/                   closed set, pin, diff. Engine re-checks.
+```
+
+`router/token_factory.py` is the only model client. Reuse `resolve_model_ids`, `complete_structured` and `smoke`. Checks do not construct an OpenAI client. The model never imports `engine` to "fix" a verdict.
+
+`mcp_server/check.py` `check()` is the orchestrator and the only function that builds a `GateVerdict`. Every stage above is implemented except `remediate/sandbox.py` (T15, cut). Edit the module that already owns the job. Do not add a second module for the same job.
+
+Who is doing what, and what is already done: `docs/sprint.md`.
+
 ## 7. Policy rules (`engine/policy.yaml`)
 
 Every rule is evaluated; the strictest match sets the policy verdict.

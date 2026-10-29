@@ -57,12 +57,14 @@ class RouteResult:
     explanation: tuple[ExplanationSentence, ...]
     receipt: RouterReceipt
     failed_closed: bool
+    dropped_sentences: int = 0
 
     def as_log(self) -> dict[str, Any]:
         return {
             "stage": "route",
             "llm_verdict": self.llm_verdict.value,
             "failed_closed": self.failed_closed,
+            "dropped_sentences": self.dropped_sentences,
             "total_cost_usd": self.receipt.total_cost_usd,
             "counterfactual_all_ultra_usd": self.receipt.counterfactual_all_ultra_usd,
             "savings_pct": self.receipt.savings_pct,
@@ -155,6 +157,7 @@ async def route(
     deterministic_only_ms: int = 0,
     tavily_calls: int = 0,
     client: AsyncOpenAI | None = None,
+    temperature: float | None = None,
 ) -> RouteResult:
     """Model calls for a non-ALLOW check. The model may raise ALLOW to REVIEW. It cannot BLOCK.
 
@@ -203,6 +206,7 @@ async def route(
             messages=_extract_messages(source),
             schema=_Extract,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            temperature=temperature,
         )
         calls.append(
             _call(
@@ -228,6 +232,7 @@ async def route(
             model=ids.super,
             messages=_data(explain_body),
             schema=_Explain,
+            temperature=temperature,
         )
         calls.append(
             _call(
@@ -243,6 +248,7 @@ async def route(
         )
         verdict = Verdict(explained.llm_verdict)
         sentences = _keep_sentences(explained.sentences, known)
+        dropped = len(explained.sentences) - len(sentences)
         if need_ultra:
             assert ids.ultra is not None
             escalated, ultra_meta = await complete_structured(
@@ -250,6 +256,7 @@ async def route(
                 model=ids.ultra,
                 messages=_data(explain_body),
                 schema=_Explain,
+                temperature=temperature,
             )
             calls.append(
                 _call(
@@ -269,6 +276,7 @@ async def route(
             ultra_sentences = _keep_sentences(escalated.sentences, known)
             if ultra_sentences:
                 sentences = ultra_sentences
+                dropped = len(escalated.sentences) - len(ultra_sentences)
         result = RouteResult(
             llm_verdict=verdict,
             added_targets=added,
@@ -277,6 +285,7 @@ async def route(
                 calls, deterministic_only_ms=deterministic_only_ms, tavily_calls=tavily_calls
             ),
             failed_closed=False,
+            dropped_sentences=dropped,
         )
         return _logged(result)
     except TokenFactoryError:
