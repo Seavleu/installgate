@@ -74,10 +74,11 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. The CLI and the API read the process environment, so load it before a live check:
+Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. `installgate check` and `python -m router.smoke` read `.env` from the current directory. A variable already set in the environment wins. The API process does not read that file, so export it before uvicorn, or use Compose, which loads `.env` for the API service:
 
 ```bash
 set -a && source .env && set +a
+uv run uvicorn mcp_server.api:app --port 8000
 ```
 
 A clean allow does not need the model key. A review or a block does, if you want an explanation.
@@ -122,10 +123,23 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The page calls `/api/check`
 
 ### MCP
 
-The tool name is `check_install`. It takes one `command` string and returns the same JSON. It speaks stdio:
+The tool name is `check_install`. It takes one `command` string and returns the same JSON. It speaks stdio, from the repo root, so `uv` can see the project:
 
 ```bash
-uv run python -c "from mcp_server.server import main; main()"
+uv run python -m mcp_server.server
+```
+
+A client such as Cursor registers that command and then calls `check_install` before it installs anything. InstallGate still only returns the verdict.
+
+```json
+{
+  "mcpServers": {
+    "installgate": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "mcp_server.server"]
+    }
+  }
+}
 ```
 
 ### Docker

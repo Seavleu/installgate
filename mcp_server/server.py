@@ -17,3 +17,7 @@ async def check_install(command: str) -> str:
 
 def main() -> None:
     server.run("stdio")
+
+
+if __name__ == "__main__":
+    main()
