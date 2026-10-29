@@ -109,6 +109,24 @@ def test_risk_score_scales_with_severity(severities, expected):
     assert risk_score(evidence) == expected
 
 
+def test_established_package_with_a_recent_release_is_allow():
+    result = stage1.run(
+        TargetRef(ecosystem=Ecosystem.PYPI, name="numpy"),
+        registry_facts={
+            "exists": True,
+            "latest_version": "2.5.4",
+            "latest_sha256": "b" * 64,
+            "first_upload": "2006-08-26T00:00:00+00:00",
+            "latest_upload": "2026-10-10T20:05:31+00:00",
+        },
+        osv_facts={"malicious": False, "mal_ids": []},
+        now=NOW,
+    )
+    assert result.verdict is Verdict.ALLOW
+    assert result.decision.matched_rules == ("P9",)
+    assert result.evidence == []
+
+
 def test_p9_regression_clean_pinned_package_reaches_allow_end_to_end():
     """Regression: evaluate() once seeded the verdict with the REVIEW default and
     only ever raised it, so P9 could match and still return REVIEW — every clean

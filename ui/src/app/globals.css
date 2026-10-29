@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  @apply bg-[#EDEFF3] font-sans text-[#14171C] antialiased;
+  @apply bg-[#E8EAEE] font-sans text-[#14171C] antialiased;
 }
 
 button:focus-visible {

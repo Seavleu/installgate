@@ -48,11 +48,18 @@ def enrich_target(target: TargetRef, facts: dict[str, Any]) -> TargetRef:
             return target
         return TargetRef(ecosystem=target.ecosystem, name=target.name, revision=sha)
 
-    version = target.version or facts.get("latest_version")
-    sha = target.artifact_sha256 or facts.get("latest_sha256")
-    # Only trust the registry hash when it describes the version we are checking.
-    if target.version and facts.get("latest_version") != target.version:
-        sha = target.artifact_sha256
+    version = target.version or facts.get("pin_version") or facts.get("latest_version")
+    sha = target.artifact_sha256
+    if sha is None and not target.version:
+        # Unpinned: install the interpreter-compatible pin, not a newer
+        # requires_python-incompatible latest (numpy 2.5.4 needs 3.12+).
+        sha = facts.get("pin_sha256") or facts.get("latest_sha256")
+    elif sha is None:
+        # Only trust the registry hash when it describes the version we are checking.
+        if facts.get("pin_version") == target.version:
+            sha = facts.get("pin_sha256")
+        if sha is None and facts.get("latest_version") == target.version:
+            sha = facts.get("latest_sha256")
 
     if version == target.version and sha == target.artifact_sha256:
         return target

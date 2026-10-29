@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from engine.cache import Cache
+from engine.clients.pypi import cache_key
 
 
 def _osv_clear() -> dict[str, Any]:
@@ -24,19 +25,21 @@ def _osv_clear() -> dict[str, Any]:
 
 
 SAMPLES: dict[tuple[str, str], dict[str, Any]] = {
-    ("pypi", "requests"): {
+    ("pypi", cache_key("requests")): {
         "exists": True,
         "latest_version": "2.34.2",
         "first_upload": "2011-02-14T08:49:42.641660+00:00",
         "latest_upload": "2026-05-14T19:25:27.735762+00:00",
         "maintainers": [],
         "latest_sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0",
+        "pin_version": "2.34.2",
+        "pin_sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0",
         "release_count": 163,
     },
     ("osv", "PyPI:requests"): _osv_clear(),
-    ("pypi", "reqeusts"): {"exists": False},
+    ("pypi", cache_key("reqeusts")): {"exists": False},
     ("osv", "PyPI:reqeusts"): _osv_clear(),
-    ("pypi", "no-such-pkg-xyz"): {"exists": False},
+    ("pypi", cache_key("no-such-pkg-xyz")): {"exists": False},
     ("osv", "PyPI:no-such-pkg-xyz"): _osv_clear(),
 }
 

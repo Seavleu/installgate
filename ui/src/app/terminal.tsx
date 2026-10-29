@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GateVerdict } from "@contracts";
 
 export const C = { ok: "#3FD18B", warn: "#F2B84B", bad: "#FF7B72", skip: "#7D8799", dim: "#8B95A7", muted: "#9AA4B5", link: "#6CB6FF" };
@@ -9,7 +9,6 @@ const GLYPH = { ok: "✔", warn: "▲", bad: "✖", skip: "–" } as const;
 export type Tone = keyof typeof GLYPH;
 
 export const words = (value: string) => value.replaceAll("_", " ");
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function money(value: number): string {
   if (value === 0) return "$0";
@@ -73,27 +72,51 @@ export function Segmented<T extends string>({
   );
 }
 
-export function TerminalFrame({ title, children }: { title: string; children: ReactNode }) {
+export function TerminalFrame({
+  title,
+  actions,
+  footer,
+  scrollKey,
+  children,
+}: {
+  title: string;
+  actions?: ReactNode;
+  footer?: ReactNode;
+  scrollKey?: string | number;
+  children: ReactNode;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [scrollKey]);
   return (
     <section
       aria-label="Terminal output"
-      className="flex min-h-[640px] flex-1 flex-col overflow-hidden rounded-xl border border-[#1F2633] bg-[#0B0E14]"
+      className="flex min-h-[32rem] flex-1 flex-col overflow-hidden rounded-xl border border-[#1F2633] bg-[#0B0E14]"
     >
-      <div className="flex h-[38px] items-center gap-2 border-b border-[#1F2633] bg-[#121722] px-4">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[#1F2633] bg-[#121722] px-3">
         <svg aria-hidden="true" width="52" height="12" viewBox="0 0 52 12">
           <circle cx="6" cy="6" r="5" fill="#3A4252" />
           <circle cx="26" cy="6" r="5" fill="#3A4252" />
           <circle cx="46" cy="6" r="5" fill="#3A4252" />
         </svg>
-        <span className="flex-1 text-center font-mono text-xs text-[#8B95A7]">{title}</span>
-        <span className="w-[52px]" />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-[#8B95A7]">{title}</span>
+        {actions}
       </div>
       <div
+        ref={scroller}
         aria-live="polite"
-        className="min-h-0 flex-1 overflow-auto px-6 pb-6 pt-[18px] font-mono text-[13.5px] leading-[1.65] text-[#D6DEEB]"
+        className="min-h-0 flex-1 overflow-auto px-5 pb-4 pt-4 font-mono text-[13.5px] leading-[1.65] text-[#D6DEEB]"
       >
         {children}
       </div>
+      {footer ? (
+        <div className="shrink-0 border-t border-[#1F2633] bg-[#0E1219] px-5 py-3 font-mono text-[13.5px] leading-[1.65] text-[#D6DEEB]">
+          {footer}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -101,9 +124,22 @@ export function TerminalFrame({ title, children }: { title: string; children: Re
 export function Prompt({ who = "~/agent-workspace", children }: { who?: string; children?: ReactNode }) {
   return (
     <div className="flex whitespace-pre-wrap">
-      <span style={{ color: C.ok }}>{who}</span>
-      <span style={{ color: C.dim }}> $ </span>
+      {who ? (
+        <>
+          <span style={{ color: C.ok }}>{who}</span>
+          <span style={{ color: C.dim }}> $ </span>
+        </>
+      ) : null}
       {children}
+    </div>
+  );
+}
+
+export function Checking({ command }: { command: string }) {
+  return (
+    <div>
+      <span style={{ color: C.dim }}>Checking </span>
+      <span className="font-bold">{command}</span>
     </div>
   );
 }
@@ -117,17 +153,18 @@ export function Heading({ children }: { children: ReactNode }) {
 }
 
 export function StepRow({ tone, name, detail, ms }: { tone: Tone; name: string; detail: string; ms?: string }) {
+  const clock = (ms ?? "–").replace(/ ms\b/, "ms").replace(/ s\b/, "s");
   return (
-    <div className="grid grid-cols-[22px_250px_minmax(0,1fr)_72px] gap-x-2">
+    <div className="grid grid-cols-[1.25rem_22ch_minmax(0,1fr)_4.5rem] gap-x-2">
       <span className="font-bold" style={{ color: C[tone] }}>
         {GLYPH[tone]}
       </span>
-      <span>{name}</span>
-      <span className="break-words" style={{ color: C.muted }}>
+      <span className="font-bold">{name}</span>
+      <span className="break-words" style={{ color: C.dim }}>
         {detail}
       </span>
       <span className="text-right" style={{ color: C.skip }}>
-        {ms ?? "–"}
+        {clock}
       </span>
     </div>
   );
@@ -135,6 +172,11 @@ export function StepRow({ tone, name, detail, ms }: { tone: Tone; name: string; 
 
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const id = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(id);
+  }, [copied]);
   return (
     <button
       type="button"
@@ -142,7 +184,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
         void navigator.clipboard?.writeText(text).catch(() => undefined);
         setCopied(true);
       }}
-      className="min-h-11 shrink-0 cursor-pointer rounded-md border border-[#2F3747] bg-[#151B26] px-3.5 font-sans text-[13px] font-medium text-[#D6DEEB]"
+      className="min-h-8 shrink-0 cursor-pointer rounded-md border border-[#2F3747] bg-[#151B26] px-2.5 font-sans text-[12px] font-medium text-[#D6DEEB] transition-transform active:scale-[0.98]"
     >
       {copied ? "Copied" : label}
     </button>
@@ -151,18 +193,57 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
 
 export function Diff({ from, to }: { from: string; to: string }) {
   return (
-    <div className="mt-1.5 overflow-hidden rounded-md border border-[#1F2633]">
-      <div className="whitespace-pre-wrap break-all bg-[#2A1416] px-3 py-0.5 text-[#FF9B94]">- {from}</div>
-      <div className="whitespace-pre-wrap break-all bg-[#10261C] px-3 py-0.5 text-[#7EE2AE]">+ {to}</div>
+    <div className="pl-4">
+      <div className="whitespace-pre-wrap break-all" style={{ color: C.bad }}>
+        - {from}
+      </div>
+      <div className="whitespace-pre-wrap break-all" style={{ color: C.ok }}>
+        + {to}
+      </div>
     </div>
   );
 }
 
+const RULE: Record<string, string> = {
+  not_found: "P1",
+  osv_malicious: "P2",
+  runtime_below_floor: "P3",
+  typosquat_new_project: "P4",
+  typosquat: "P5",
+  new_project: "P6",
+  new_release: "P6",
+  hf_pickle: "P7",
+  maintainer_change: "P8",
+  check_unavailable: "P10",
+};
+const KIND = { ALLOW: "success", REVIEW: "warning", BLOCK: "error" } as const;
+const SKIP_OBS = new Set(["first_upload", "latest_upload"]);
+
+function clip(text: string, n: number): string {
+  const compact = text.replace(/\s+/g, " ");
+  return compact.length <= n ? compact : `${compact.slice(0, n - 1)}…`;
+}
+
 function observedLine(observed: Record<string, unknown>): string {
-  return Object.entries(observed)
-    .slice(0, 4)
-    .map(([key, item]) => `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`)
-    .join(" · ");
+  const parts: string[] = [];
+  for (const [key, item] of Object.entries(observed)) {
+    if (SKIP_OBS.has(key)) continue;
+    let raw = typeof item === "string" ? item : JSON.stringify(item);
+    if (key === "title" || key === "snippet" || key === "sha256" || key === "artifact_sha256") raw = clip(raw, 56);
+    parts.push(`${key}: ${raw}`);
+    if (parts.length === 4) break;
+  }
+  return parts.join(" · ");
+}
+
+function ruleId(v: GateVerdict): string {
+  const want = v.final_verdict === "BLOCK" ? "hard" : "soft";
+  const hit = v.evidence.find((e) => e.severity === want) ?? v.evidence[0];
+  return hit ? (RULE[hit.kind] ?? "") : "";
+}
+
+function cited(text: string, ids: string[]): string {
+  return ids.every((id) => text.includes(id)) ? text : `${text} [${ids.join(", ")}]`;
 }
 
 function substituteLine(command: string, verdict: GateVerdict): string | null {
@@ -177,137 +258,281 @@ function pinnedCommand(verdict: GateVerdict): string | null {
   const { ecosystem, name, version, artifact_sha256 } = verdict.target;
   if (!version) return null;
   if (ecosystem === "npm") return `npm install ${name}@${version}`;
-  if (ecosystem === "pypi") return `pip install "${name}==${version}"${artifact_sha256 ? ` --hash=sha256:${artifact_sha256}` : ""}`;
+  if (ecosystem === "pypi") {
+    return `pip install ${name}==${version}${artifact_sha256 ? ` --hash=sha256:${artifact_sha256}` : ""}`;
+  }
   return null;
 }
 
-function receiptLine(v: GateVerdict): string {
-  const r = v.receipt;
-  if (!r || r.calls.length === 0) return "No model calls · $0 · deterministic path only";
-  const chain = r.calls
-    .map((c) => `${c.tier[0].toUpperCase()}${c.tier.slice(1)} ${(c.prompt_tokens + c.completion_tokens).toLocaleString()} tok`)
-    .join(" → ");
-  const tavily = r.tavily_calls ? ` · Tavily ${plural(r.tavily_calls, "call")}` : "";
-  return `Nemotron on Nebius Token Factory · ${chain} · ${money(r.total_cost_usd)} (all-Ultra ${money(r.counterfactual_all_ultra_usd)}, −${r.savings_pct.toFixed(0)}%)${tavily}`;
+function clipHash(cmd: string): string {
+  return cmd.replace(/--hash=sha256:([0-9a-f]{12})[0-9a-f]+/gi, "--hash=sha256:$1…");
 }
 
-/** Everything after the pipeline steps: verdict, evidence, why, fix, receipt. */
+/** Same command the CLI would run after [Y/n]. Copy is pip-portable; display matches `ig`. */
+export function proposedRun(verdict: GateVerdict): { copy: string; display: string; defaultYes: boolean } | null {
+  const rem = verdict.remediation;
+  if (rem?.status === "VERIFIED_SUBSTITUTE" && rem.approved_requirement) {
+    const req = rem.approved_requirement;
+    const hashed = req.includes("--hash=");
+    const copy = hashed ? `pip install ${req} --no-deps` : req.startsWith("pip ") ? req : `pip install ${req}`;
+    const display = hashed ? `uv pip install --no-deps ${clipHash(req)}` : clipHash(copy);
+    return { copy, display, defaultYes: false };
+  }
+  const { ecosystem, name, version, artifact_sha256 } = verdict.target;
+  if (verdict.final_verdict !== "ALLOW" || !version) return null;
+  if (ecosystem === "npm") {
+    const copy = `npm install ${name}@${version}`;
+    return { copy, display: copy, defaultYes: true };
+  }
+  if (ecosystem === "pypi") {
+    const req = `${name}==${version}${artifact_sha256 ? ` --hash=sha256:${artifact_sha256}` : ""}`;
+    const copy = artifact_sha256 ? `pip install ${req} --no-deps` : `pip install ${name}==${version}`;
+    const display = artifact_sha256
+      ? `uv pip install --no-deps ${clipHash(req)}`
+      : `pip install ${name}==${version}`;
+    return { copy, display, defaultYes: true };
+  }
+  return null;
+}
+
+export type ConfirmState = "wait" | "yes" | "no";
+
+export function ConfirmLine({
+  display,
+  defaultYes,
+  state,
+  onAnswer,
+}: {
+  display: string;
+  defaultYes: boolean;
+  state: ConfirmState;
+  onAnswer?: (yes: boolean) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (state === "wait") input.current?.focus();
+  }, [state, display]);
+
+  if (state === "yes") {
+    return <div style={{ color: C.ok }}>{"  "}copied. paste in your shell</div>;
+  }
+  if (state === "no") {
+    return <div style={{ color: C.dim }}>{"  "}skipped</div>;
+  }
+
+  const hint = defaultYes ? "Y/n" : "y/N";
+  return (
+    <div className="flex flex-wrap items-baseline gap-2">
+      <span style={{ color: C.dim }}>
+        {"  "}? Run `{display}` [{hint}]
+      </span>
+      {onAnswer ? (
+        <input
+          ref={input}
+          aria-label="Confirm install. Y copies the pinned command. N skips."
+          className="w-16 border-0 bg-transparent p-0 font-mono text-[#D6DEEB] caret-[#D6DEEB] outline-none"
+          spellCheck={false}
+          autoComplete="off"
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onAnswer(defaultYes);
+              return;
+            }
+            if (event.key === "y" || event.key === "Y") {
+              event.preventDefault();
+              onAnswer(true);
+              return;
+            }
+            if (event.key === "n" || event.key === "N") {
+              event.preventDefault();
+              onAnswer(false);
+            }
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function receiptLine(v: GateVerdict, elapsedMs: number): string {
+  const took = `${(elapsedMs / 1000).toFixed(2)}s`;
+  const r = v.receipt;
+  if (!r || r.calls.length === 0) return `no model · $0 · ${took}`;
+  const chain = r.calls
+    .map((c) => `${c.tier[0].toUpperCase()}${c.tier.slice(1)} ${c.prompt_tokens + c.completion_tokens} tok`)
+    .join(" → ");
+  const tavily = r.tavily_calls ? ` · Tavily ${r.tavily_calls}` : "";
+  return `${chain} · ${money(r.total_cost_usd)} (−${r.savings_pct.toFixed(0)}% vs all-Ultra)${tavily} · ${took}`;
+}
+
+export function Banner({
+  verdict,
+  name,
+  code,
+}: {
+  verdict: keyof typeof KIND;
+  name: string;
+  code?: string;
+}) {
+  const kind = KIND[verdict];
+  const tone = { ALLOW: C.ok, REVIEW: C.warn, BLOCK: C.bad }[verdict];
+  const label = code ? `${kind}[${code}]` : kind;
+  return (
+    <div className="mt-4 font-bold" style={{ color: tone }}>
+      {label}: {verdict} {name}
+    </div>
+  );
+}
+
+function EvidenceSpan({
+  id,
+  severity,
+  source,
+  kind,
+  web,
+  facts,
+}: {
+  id: string;
+  severity: string;
+  source: string;
+  kind: string;
+  web: boolean;
+  facts: string;
+}) {
+  const tone = severity === "hard" ? C.bad : severity === "soft" ? C.warn : C.skip;
+  return (
+    <div className="whitespace-pre-wrap">
+      <div>
+        <span style={{ color: tone }}>×</span> {words(kind)}
+      </div>
+      <div style={{ color: C.dim }}>
+        {"   ╭─[ "}
+        <span style={{ color: C.link }}>
+          {id} {severity}
+          {web ? " · web" : ""} · {source}
+        </span>
+        {" ]"}
+      </div>
+      {facts ? <div style={{ color: C.dim }}>{`   │  ${facts}`}</div> : null}
+      <div style={{ color: C.dim }}>{"   ╰──"}</div>
+    </div>
+  );
+}
+
+/** Same layout as `ig` in a TTY: uv/ruff/cargo diagnostics. */
 export function VerdictView({
   verdict: v,
   command,
   spendCapped,
   elapsedMs,
+  confirm,
+  onConfirm,
 }: {
   verdict: GateVerdict;
   command: string;
   spendCapped: boolean;
   elapsedMs: number;
+  confirm?: ConfirmState;
+  onConfirm?: (yes: boolean) => void;
 }) {
   const safe = substituteLine(command, v);
   const allow = v.final_verdict === "ALLOW" ? pinnedCommand(v) : null;
-  const [vColor, vGlyph] = VERDICT[v.final_verdict];
-  const grid4 = "grid grid-cols-[56px_92px_120px_minmax(0,1fr)] gap-x-3";
+  const pin = v.target.version ? `${v.target.name}==${v.target.version}` : v.target.name;
+  const run = proposedRun(v);
 
   return (
     <>
-      <div className="mt-[18px] flex flex-wrap items-center gap-3">
-        <span className="rounded px-2.5 py-px font-bold text-[#0B0E14]" style={{ background: vColor }}>
-          {vGlyph} {v.final_verdict}
-        </span>
-        <span className="font-bold">{v.target.name}</span>
-        <span style={{ color: C.muted }}>
-          {v.target.ecosystem} · risk {v.risk_score.toFixed(2)} · {words(v.outcome).toLowerCase()}
-        </span>
+      <Banner verdict={v.final_verdict} name={pin} code={ruleId(v)} />
+      <div style={{ color: C.dim }}>
+        {"  "}
+        {v.target.ecosystem} · risk {v.risk_score.toFixed(2)} · {words(v.outcome).toLowerCase()}
       </div>
-      {v.failed_closed && <div style={{ color: C.warn }}>A lookup failed, so this stays a review.</div>}
-      {spendCapped && <div style={{ color: C.warn }}>The daily model budget is spent. This verdict is from the decision engine.</div>}
+      {v.failed_closed && <div style={{ color: C.warn }}>warning: a lookup failed, so this stays a review</div>}
+      {spendCapped && <div style={{ color: C.warn }}>warning: the daily model budget is spent</div>}
 
-      <Heading>Evidence</Heading>
       {v.evidence.length === 0 ? (
-        <div style={{ color: C.muted }}>No findings. Nothing to explain, so no model was called.</div>
+        <div style={{ color: C.dim }}>{"  "}no findings · model skipped</div>
       ) : (
-        <>
-          <div className={grid4} style={{ color: C.skip }}>
-            <span>ID</span>
-            <span>SEVERITY</span>
-            <span>SOURCE</span>
-            <span>FINDING</span>
-          </div>
-          {v.evidence.map((e) => (
-            <div key={e.id} className={grid4}>
-              <span style={{ color: C.link }}>{e.id}</span>
-              <span style={{ color: e.severity === "hard" ? C.bad : e.severity === "soft" ? C.warn : C.dim }}>
-                {e.severity}
-                {e.trust === "retrieved_untrusted" ? " · web" : ""}
-              </span>
-              <span style={{ color: C.muted }}>{words(e.source)}</span>
-              <span className="break-words">
-                {words(e.kind)}
-                {Object.keys(e.observed).length > 0 && <span style={{ color: C.muted }}> · {observedLine(e.observed)}</span>}
-              </span>
-            </div>
-          ))}
-        </>
+        v.evidence.map((e) => (
+          <EvidenceSpan
+            key={e.id}
+            id={e.id}
+            severity={e.severity}
+            source={e.source}
+            kind={e.kind}
+            web={e.trust === "retrieved_untrusted"}
+            facts={observedLine(e.observed)}
+          />
+        ))
       )}
 
-      {(v.explanation.length > 0 || v.dropped_sentences > 0) && (
-        <>
-          <Heading>Why</Heading>
-          {v.explanation.map((s) => (
-            <div key={s.text}>
-              <span style={{ color: C.skip }}>• </span>
-              {s.text} <span style={{ color: C.link }}>[{s.evidence_ids.join(", ")}]</span>
-            </div>
-          ))}
-          <div style={{ color: C.skip }}>
-            Validator: {v.explanation.length} of {v.explanation.length + v.dropped_sentences} sentences cited ·{" "}
-            {v.dropped_sentences} dropped{v.dropped_sentences > 0 ? " (no evidence id)" : ""}
-          </div>
-        </>
+      {v.explanation.map((s) => (
+        <div key={s.text} style={{ color: C.skip }}>
+          {"  "}note: {cited(s.text, s.evidence_ids)}
+        </div>
+      ))}
+      {v.dropped_sentences > 0 && (
+        <div style={{ color: C.skip }}>
+          {"  "}note: {v.dropped_sentences} sentence(s) dropped (no evidence id)
+        </div>
       )}
 
       {safe && v.remediation && (
         <>
-          <div className="mt-[18px] flex items-center justify-between gap-4">
-            <span className="font-bold">
-              Suggested fix{" "}
-              <span className="font-normal" style={{ color: C.skip }}>
-                ({words(v.remediation.candidate_source ?? "closed set")} · re-checked [{v.remediation.recheck_evidence_ids.join(", ")}])
-              </span>
-            </span>
-            <CopyButton key={safe} text={safe} label="Copy fix" />
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div style={{ color: C.ok }}>
+              {"  "}help: use substitute ({words(v.remediation.candidate_source ?? "closed set")} · re-checked{" "}
+              {v.remediation.recheck_evidence_ids.join(", ")})
+            </div>
+            <CopyButton key={safe} text={run?.copy ?? safe} label="Copy" />
           </div>
           <Diff from={command} to={safe} />
-          <div className="mt-1.5" style={{ color: C.muted }}>
-            Not run. Confirm it, then run it yourself or let your agent run it. {v.remediation.equivalence_note}.
-          </div>
+          {v.remediation.equivalence_note ? (
+            <div style={{ color: C.dim }}>
+              {"  "}note: {v.remediation.equivalence_note}
+            </div>
+          ) : null}
         </>
       )}
 
       {!safe && v.final_verdict !== "ALLOW" && (
         <>
-          <Heading>Suggested fix</Heading>
-          <div style={{ color: C.warn }}>▲ No safe substitute. The closed candidate set has no match, so InstallGate will not guess a name.</div>
-          <div style={{ color: C.muted }}>Ask a human which package was meant, then check that name.</div>
+          <div style={{ color: C.warn }}>{"  "}help: no safe substitute in the closed candidate set</div>
+          <div style={{ color: C.dim }}>{"  "}note: ask a human which package was meant, then check that name</div>
         </>
       )}
 
       {allow && (
         <>
-          <Heading>Proceed</Heading>
-          <div className="whitespace-pre-wrap break-all rounded-md border border-[#1F2633] px-3 py-0.5 text-[#7EE2AE]">{allow}</div>
-          <div className="mt-1.5" style={{ color: C.muted }}>
-            Pinned to the exact artifact that was checked. InstallGate does not run it.
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 break-all" style={{ color: C.ok }}>
+              {"  "}help: {allow}
+            </div>
+            <CopyButton key={allow} text={run?.copy ?? allow} label="Copy" />
           </div>
+          <div style={{ color: C.dim }}>{"  "}note: pinned artefact. Confirm to copy. The browser never installs.</div>
         </>
       )}
 
-      <div className="mt-[18px] border-t border-[#1F2633] pt-2.5" style={{ color: C.dim }}>
-        {receiptLine(v)}
+      <div style={{ color: C.dim }}>
+        {"  "}note: {receiptLine(v, elapsedMs)}
       </div>
-      <div style={{ color: vColor }}>
-        {v.final_verdict} · next: {words(v.next_action)} · {(elapsedMs / 1000).toFixed(2)} s
-      </div>
+      {run && (
+        <ConfirmLine
+          display={run.display}
+          defaultYes={run.defaultYes}
+          state={confirm ?? "wait"}
+          onAnswer={
+            onConfirm
+              ? (yes) => {
+                  if (yes) void navigator.clipboard?.writeText(run.copy).catch(() => undefined);
+                  onConfirm(yes);
+                }
+              : undefined
+          }
+        />
+      )}
     </>
   );
 }

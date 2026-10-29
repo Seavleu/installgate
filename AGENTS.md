@@ -188,7 +188,7 @@ Every rule is evaluated; the strictest match sets the policy verdict.
 | P3 | Dockerfile base tag below the patched floor | BLOCK | `runtime_below_floor` (hard) |
 | P4 | Typosquat match and first upload under 7 days | BLOCK | `typosquat_new_project` (hard, derived) |
 | P5 | Typosquat match alone | REVIEW | `typosquat` (soft) |
-| P6 | First upload or latest release under 30 days | REVIEW | `new_project` / `new_release` (soft) |
+| P6 | First upload under 30 days | REVIEW | `new_project` / `new_release` (soft) |
 | P7 | Hugging Face repo with pickle weights only | REVIEW | `hf_pickle` (soft) |
 | P8 | Maintainer change on a recent release | REVIEW | `maintainer_change` (soft) |
 | P9 | None of the above and the artefact is pinned | ALLOW | none |

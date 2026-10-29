@@ -45,6 +45,19 @@ def test_old_stable_package_has_no_age_evidence():
     assert checks.check_age(target("requests"), facts, EvidenceBuilder(), now=NOW) == []
 
 
+def test_established_project_recent_release_is_not_age_evidence():
+    # numpy 2.5.4: first upload in 2006, latest 18 days ago. Age of an update
+    # is not P6; P2 and P8 still catch a compromised release.
+    facts = {"exists": True, "first_upload": days_ago(3000), "latest_upload": days_ago(18)}
+    assert checks.check_age(target("numpy"), facts, EvidenceBuilder(), now=NOW) == []
+
+
+def test_missing_first_upload_keeps_new_release():
+    facts = {"exists": True, "latest_upload": days_ago(5)}
+    out = checks.check_age(target("maybe-new"), facts, EvidenceBuilder(), now=NOW)
+    assert [e.kind for e in out] == [EvidenceKind.NEW_RELEASE]
+
+
 def test_osv_mal_record_is_hard():
     evidence = checks.check_osv_malicious(
         target("evil"), {"malicious": True, "mal_ids": ["MAL-2026-1"]}, EvidenceBuilder()

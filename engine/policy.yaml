@@ -2,7 +2,7 @@
 #
 # A rule fires when ANY of its evidence kinds is present (plus `requires_all` when set).
 # BLOCK rules may only cite hard, deterministic evidence — the validator re-checks this.
-version: "2026-10-28.1"
+version: "2026-10-30.1"
 
 rules:
   - id: P1
@@ -42,10 +42,13 @@ rules:
     rationale: Could be a deliberate fork or a genuine near-miss. A human decides.
 
   - id: P6
-    description: First upload or latest release under 30 days old
+    description: First upload under 30 days old
     verdict: REVIEW
     any_of: [new_project, new_release]
-    rationale: Release age alone never blocks; it only raises a review.
+    rationale: >
+      A brand-new name is unknown. A fresh release of an established project
+      is not a review by itself: P2 (MAL-) and P8 (maintainer change) catch a
+      compromised update. new_release still fires when first_upload is missing.
 
   - id: P7
     description: Hugging Face repo serving pickle weights
