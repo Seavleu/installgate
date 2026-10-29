@@ -18,7 +18,7 @@ function parseVerdict(value: unknown): GateVerdict | null {
   return parsed.success ? parsed.data : null;
 }
 
-type StreamState = {
+export type StreamState = {
   command: string | null;
   gateOff: boolean;
   events: StageEvent[];
@@ -111,7 +111,12 @@ export function useStreamCheck() {
     setState({ ...EMPTY_STREAM, command, gateOff: true });
   }
 
-  return { state, run, skip };
+  function restore(next: StreamState) {
+    if (busy.current) return;
+    setState({ ...next, pending: false });
+  }
+
+  return { state, run, skip, restore };
 }
 
 type McpState = {

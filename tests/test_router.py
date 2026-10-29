@@ -7,7 +7,8 @@ import json
 import httpx
 import pytest
 import respx
-from contracts.contracts import ModelTier, RouteCall, Verdict
+from contracts.contracts import Ecosystem, EvidenceKind, ModelTier, RouteCall, TargetRef, Verdict
+from engine.evidence import EvidenceBuilder
 from router.receipt import build_receipt, cost_usd
 from router.tiers import route
 
@@ -118,6 +119,38 @@ async def test_review_below_threshold_skips_ultra() -> None:
     assert result.receipt.total_cost_usd == pytest.approx(0.06 + 0.30)
     assert result.receipt.counterfactual_all_ultra_usd == pytest.approx(2.0)
     assert "test-key" not in str(result.as_log())
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_explain_prompt_carries_evidence_facts_not_extract() -> None:
+    target = TargetRef(ecosystem=Ecosystem.PYPI, name="numpy")
+    evidence = EvidenceBuilder().build(
+        EvidenceKind.NEW_RELEASE,
+        source="pypi",
+        trust="deterministic",
+        severity="soft",
+        target=target,
+        observed={"latest_version": "2.5.4", "age_days": 18},
+    )
+    respx.get(f"{BASE}models").mock(return_value=httpx.Response(200, json=CATALOG))
+    posts = respx.post(f"{BASE}chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json=_completion('{"targets": []}', NANO)),
+            httpx.Response(200, json=_completion(_explain(), SUPER)),
+        ]
+    )
+    await route(
+        policy_verdict=Verdict.REVIEW,
+        risk_score=0.25,
+        evidence_ids=[evidence.id],
+        evidence=[evidence],
+        command="pip install numpy",
+    )
+    extract, explain = (json.dumps(json.loads(c.request.content)["messages"]) for c in posts.calls)
+    assert "age_days: 18" in explain
+    assert "EV-1 | new_release | soft | deterministic | pypi" in explain
+    assert "age_days" not in extract
 
 
 @respx.mock

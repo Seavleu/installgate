@@ -48,7 +48,7 @@ The model may raise ALLOW to REVIEW. BLOCK comes only from the policy, and only 
 
 ## Policy
 
-Every rule runs. The strictest match wins. Policy version `2026-10-28.1`.
+Every rule runs. The strictest match wins. Policy version `2026-10-30.1`.
 
 | Rule | Condition | Verdict |
 | --- | --- | --- |
@@ -57,13 +57,13 @@ Every rule runs. The strictest match wins. Policy version `2026-10-28.1`.
 | P3 | Dockerfile base tag is below the patched floor | BLOCK |
 | P4 | Typosquat of a popular name, first upload under 7 days | BLOCK |
 | P5 | Typosquat alone | REVIEW |
-| P6 | First upload or latest release under 30 days | REVIEW |
+| P6 | First upload under 30 days | REVIEW |
 | P7 | Hugging Face repo with pickle weights and no safetensors file | REVIEW |
 | P8 | Maintainer change on a recent release | REVIEW |
 | P9 | No findings, and the artefact is pinned | ALLOW |
 | P10 | A check could not run | REVIEW |
 
-An allow requires a pin: version plus sha256, or a Hugging Face revision. An unpinned package with no findings is a review. Release age alone never blocks. The npm typosquat check is off, so an npm install that would have needed it is a review under P10.
+An allow requires a pin: version plus sha256, or a Hugging Face revision. Stage 1 attaches the registry pin, so `pip install numpy` can ALLOW. An unpinned package with no findings and no hash is a review. A fresh release of an established project is not P6; a brand-new name is. Release age alone never blocks. The npm typosquat check is off, so an npm install that would have needed it is a review under P10.
 
 ## Quick start
 
@@ -271,20 +271,20 @@ The runner never touches the network. The label scripts do. Run them by hand, ne
 
 ### Results
 
-Recorded on 2026-10-28 at commit `582c702`. Regenerate with `uv run python -m eval.runner`. This file is not updated automatically. The full report, including the confusion matrix, is [`eval/results.md`](eval/results.md).
+Recorded on 2026-10-30. Regenerate with `uv run python -m eval.runner`. The full report, including the confusion matrix, is [`eval/results.md`](eval/results.md).
 
 | Metric | Target | Result |
 | --- | --- | --- |
 | Block recall | ≥ 95% | 100.0% |
 | False-block rate on benign | ≤ 2% | 0.0% |
-| Review rate on benign | no target | 11.4% |
+| Review rate on benign | no target | 0.0% |
 | p50 latency | — | 0.02 ms |
-| p95 latency | — | 0.66 ms |
+| p95 latency | — | 0.71 ms |
 
 | Class | Deciding rule | Every rule that fired |
 | --- | --- | --- |
-| benign | P9 ×39, P6 ×5 | P9 ×39, P6 ×5 |
-| malicious | P2 ×26, P1 ×24 | P2 ×26, P1 ×24, P5 ×3, P6 ×2 |
+| benign | P9 ×44 | P9 ×44 |
+| malicious | P2 ×26, P1 ×24 | P2 ×26, P1 ×24, P5 ×3, P6 ×1 |
 | hallucinated | P1 ×30 | P1 ×30 |
 | typosquat | P4 ×13, P5 ×7 | P5 ×20, P4 ×13, P6 ×13 |
 | hf_pickle | P7 ×5 | P7 ×5 |
@@ -292,7 +292,7 @@ Recorded on 2026-10-28 at commit `582c702`. Regenerate with `uv run python -m ev
 
 | Class | Cases | Passed | Failed | Labels |
 | --- | --- | --- | --- | --- |
-| benign | 44 | 39 | 5 | 10 unverified |
+| benign | 44 | 44 | 0 | 10 unverified |
 | malicious | 50 | 50 | 0 | 25 unverified |
 | hallucinated | 30 | 30 | 0 | verified |
 | typosquat | 20 | 20 | 0 | 20 unverified |
@@ -301,7 +301,7 @@ Recorded on 2026-10-28 at commit `582c702`. Regenerate with `uv run python -m ev
 
 "Deciding rule" is the strictest rule that matched. "Passed" means the verdict matched the label.
 
-Five benign cases are reviews, and that is the policy working. `fastapi`, `numpy`, `django`, `pydantic`, and `sqlalchemy` were unpinned, so they resolve to the latest release, and that release was under 30 days old. P6 sends a release that young to review. The 30-day line stays: a fresh release is where a compromised version shows up (litellm 1.82.7). Loosening it to clear these five would miss that case. The false-block rate on this run is 0%.
+`numpy`, `django`, `fastapi`, `pydantic`, and `sqlalchemy` ALLOW: they are established projects, Stage 1 pins the latest artefact, and a fresh release is not P6. A compromised update is still P2 (`MAL-`) or P8 (maintainer change). Brand-new names stay P6. 150/150 passed. False-block rate 0%.
 
 ### Limits of this run
 

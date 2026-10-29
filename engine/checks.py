@@ -163,7 +163,7 @@ def check_age(
     builder: EvidenceBuilder,
     now: datetime | None = None,
 ) -> list[Evidence]:
-    """P6: a very new project or a very new release. Soft — age alone never blocks."""
+    """P6: a brand-new project. Soft. A new release of an old project is not P6."""
     if not facts.get("exists"):
         return []
     now = now or datetime.now(UTC)
@@ -192,20 +192,24 @@ def check_age(
     if latest is not None:
         age_days = max((now - latest).days, 0)
         if age_days < NEW_RELEASE_DAYS:
-            out.append(
-                builder.build(
-                    EvidenceKind.NEW_RELEASE,
-                    source=source,  # type: ignore[arg-type]
-                    trust="deterministic",
-                    severity="soft",
-                    target=target,
-                    observed={
-                        "latest_upload": latest.isoformat(),
-                        "age_days": age_days,
-                        "latest_version": facts.get("latest_version"),
-                    },
+            # A new version of an old project is not P6. numpy shipping 2.5.4
+            # is not a review; a brand-new name, or a missing first_upload, is.
+            established = first is not None and max((now - first).days, 0) >= NEW_PROJECT_DAYS
+            if not established:
+                out.append(
+                    builder.build(
+                        EvidenceKind.NEW_RELEASE,
+                        source=source,  # type: ignore[arg-type]
+                        trust="deterministic",
+                        severity="soft",
+                        target=target,
+                        observed={
+                            "latest_upload": latest.isoformat(),
+                            "age_days": age_days,
+                            "latest_version": facts.get("latest_version"),
+                        },
+                    )
                 )
-            )
     return out
 
 

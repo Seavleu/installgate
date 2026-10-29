@@ -70,9 +70,11 @@ def test_reverifying_one_case_does_not_move_another():
 def test_each_case_is_judged_against_its_own_stamp():
     fresh = run_case(_aged_case("a", "2027-05-20T00:00:00+00:00", "2027-06-01T00:00:00+00:00"))
     stale = run_case(_aged_case("b", "2026-01-01T00:00:00+00:00", "2027-06-01T00:00:00+00:00"))
-    # Same clock, different release dates: one release is recent, one is not.
+    # Same clock, different release dates. Both are established (first upload
+    # 2015), so a recent update is not P6; the stamp still must not leak.
     assert fresh.clock == stale.clock
-    assert "new_release" in fresh.evidence_kinds
+    assert fresh.actual == stale.actual
+    assert "new_release" not in fresh.evidence_kinds
     assert "new_release" not in stale.evidence_kinds
 
 
@@ -87,14 +89,13 @@ def test_a_release_newer_than_the_clock_is_not_negative_age():
     facts = {
         "exists": True,
         "latest_version": "2.31.0",
-        "first_upload": "2015-01-01T00:00:00+00:00",
         "latest_upload": future,
     }
     evidence = checks.check_age(TARGET, facts, EvidenceBuilder(), now=FALLBACK_NOW)
     ages = [e.observed["age_days"] for e in evidence]
     assert all(age >= 0 for age in ages), ages
-    # Clamped to 0, the release still reads as recent, which is the honest answer
-    # for a clock that is behind: we cannot say the release is old.
+    # No first_upload: fail closed. Clamped to 0, the release still reads as
+    # recent, which is the honest answer for a clock that is behind.
     assert EvidenceKind.NEW_RELEASE in {e.kind for e in evidence}
 
 

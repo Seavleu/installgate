@@ -68,9 +68,8 @@ BUCKETS: tuple[tuple[str, int], ...] = (
     ("BLOCK not_found", 5),
     ("BLOCK osv_malicious", 5),
     ("REVIEW typosquat", 4),
-    ("REVIEW new_release", 3),
     ("REVIEW hf_pickle", 3),
-    ("ALLOW control", 5),
+    ("ALLOW control", 8),
 )
 
 
@@ -139,8 +138,6 @@ def bucket_of(policy: Verdict, label: str, kinds: set[str]) -> str | None:
         return None
     if kinds == {"typosquat"}:
         return "REVIEW typosquat"
-    if kinds == {"new_release"}:
-        return "REVIEW new_release"
     if kinds == {"hf_pickle"}:
         return "REVIEW hf_pickle"
     return None

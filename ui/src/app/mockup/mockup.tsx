@@ -1,14 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { C, CopyButton, Cursor, Diff, Heading, Prompt, Segmented, StepRow, TerminalFrame, VERDICT, type Tone } from "../terminal";
+import {
+  Banner,
+  C,
+  Checking,
+  ConfirmLine,
+  CopyButton,
+  Cursor,
+  Diff,
+  Prompt,
+  Segmented,
+  StepRow,
+  TerminalFrame,
+  type ConfirmState,
+  type Tone,
+} from "../terminal";
 
 // Sample data from the design mockup. Not live; some values are invented.
 type Ev = [id: string, sev: string, src: string, text: string];
 type Scenario = {
   label: string;
-  verdict: keyof typeof VERDICT;
+  verdict: "ALLOW" | "REVIEW" | "BLOCK";
   target: string;
+  code?: string;
   cmd: string;
   sub: string;
   total: string;
@@ -25,7 +40,7 @@ type Scenario = {
 
 const SCENARIOS: Record<string, Scenario> = {
   typo: {
-    label: "Typosquat", verdict: "BLOCK", target: "reqeusts", cmd: "pip install reqeusts", sub: "pypi · risk 0.97 · rule P4", total: "1.84 s",
+    label: "Typosquat", verdict: "BLOCK", target: "reqeusts", code: "P4", cmd: "pip install reqeusts", sub: "pypi · risk 0.97 · verified substitute", total: "1.84s",
     steps: [
       ["ok", "Parse target", "pypi · reqeusts · unpinned", "2 ms"],
       ["ok", "Registry metadata", "exists · first upload 2 days ago · 1 maintainer", "118 ms"],
@@ -55,7 +70,7 @@ const SCENARIOS: Record<string, Scenario> = {
     off: [["Collecting reqeusts", ""], ["  Downloading reqeusts-0.1.0.tar.gz (2.1 kB)", ""], ["  Preparing metadata (setup.py) ... done", ""], ["Installing collected packages: reqeusts", ""], ["Successfully installed reqeusts-0.1.0", ""], ["", ""], ["# No check ran. setup.py executed with this shell's credentials in reach.", "red"]],
   },
   halluc: {
-    label: "Hallucinated name", verdict: "BLOCK", target: "openai-agents-toolkit-pro", cmd: "pip install openai-agents-toolkit-pro", sub: "pypi · risk 0.99 · rule P1", total: "1.21 s",
+    label: "Hallucinated name", verdict: "BLOCK", target: "openai-agents-toolkit-pro", code: "P1", cmd: "pip install openai-agents-toolkit-pro", sub: "pypi · risk 0.99 · block", total: "1.21s",
     steps: [
       ["ok", "Parse target", "pypi · openai-agents-toolkit-pro", "2 ms"],
       ["bad", "Registry metadata", "not found on PyPI", "131 ms"],
@@ -78,7 +93,7 @@ const SCENARIOS: Record<string, Scenario> = {
     off: [["ERROR: Could not find a version that satisfies the requirement openai-agents-toolkit-pro", "red"], ["ERROR: No matching distribution found for openai-agents-toolkit-pro", "red"], ["", ""], ["# Fails today. If someone registers this name, the next run installs their code.", "red"]],
   },
   pickle: {
-    label: "Pickle model", verdict: "REVIEW", target: "acme/sentiment-small", cmd: "huggingface-cli download acme/sentiment-small", sub: "huggingface · risk 0.66 · rule P7", total: "2.21 s",
+    label: "Pickle model", verdict: "REVIEW", target: "acme/sentiment-small", code: "P7", cmd: "huggingface-cli download acme/sentiment-small", sub: "huggingface · risk 0.66 · review", total: "2.21s",
     steps: [
       ["ok", "Parse target", "huggingface · acme/sentiment-small", "2 ms"],
       ["warn", "Hub metadata", "pytorch_model.bin (pickle) · no .safetensors", "176 ms"],
@@ -107,7 +122,7 @@ const SCENARIOS: Record<string, Scenario> = {
     off: [["Fetching 4 files: 100%|████████████████| 4/4", ""], ["/home/dev/.cache/huggingface/hub/models--acme--sentiment-small", ""], ["", ""], ["# Downloaded. pytorch_model.bin is a pickle: torch.load() can execute code from it.", "red"]],
   },
   docker: {
-    label: "Dockerfile", verdict: "BLOCK", target: "FROM php:8.3.30-apache", cmd: "installgate check Dockerfile", sub: "docker · risk 0.95 · rule P3", total: "1.33 s",
+    label: "Dockerfile", verdict: "BLOCK", target: "FROM php:8.3.30-apache", code: "P3", cmd: "installgate check Dockerfile", sub: "docker · risk 0.95 · verified substitute", total: "1.33s",
     steps: [
       ["ok", "Parse Dockerfile", "line 1 · FROM php:8.3.30-apache", "3 ms"],
       ["bad", "Runtime floor", "PHP 8.3.30 is below the patched floor 8.3.36", "1 ms"],
@@ -134,7 +149,7 @@ const SCENARIOS: Record<string, Scenario> = {
     off: [["[+] Building 18.2s (9/9) FINISHED", ""], [" => [1/5] FROM docker.io/library/php:8.3.30-apache", ""], [" => exporting to image", ""], ["", ""], ["# Built. The image ships PHP 8.3.30, below the patched floor.", "red"]],
   },
   clean: {
-    label: "Clean package", verdict: "ALLOW", target: "fastapi", cmd: "pip install fastapi", sub: "pypi · risk 0.02 · rule P9", total: "0.31 s",
+    label: "Clean package", verdict: "ALLOW", target: "fastapi", cmd: "pip install fastapi", sub: "pypi · risk 0.00 · allow", total: "0.31s",
     steps: [
       ["ok", "Parse target", "pypi · fastapi", "2 ms"],
       ["ok", "Registry metadata", "exists · no recent maintainer change", "97 ms"],
@@ -157,24 +172,41 @@ const OFF_COLOR = { "": "#D6DEEB", red: "#FF9B94", dim: C.dim };
 export function MockupDemo() {
   const [key, setKey] = useState("typo");
   const [gate, setGate] = useState<"on" | "off">("on");
+  const [confirm, setConfirm] = useState<ConfirmState>("wait");
   const d = SCENARIOS[key];
-  const [vColor, vGlyph] = VERDICT[d.verdict];
-  const grid4 = "grid grid-cols-[56px_92px_120px_minmax(0,1fr)] gap-x-3";
+  const runCmd = d.fix?.to ?? d.allow;
+
+  function pick(next: string) {
+    setKey(next);
+    setConfirm("wait");
+  }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-[1280px] flex-col gap-4 px-8 py-7">
+    <main className="mx-auto flex min-h-[100dvh] max-w-[1400px] flex-col gap-3 px-4 py-4 md:px-6">
       <header>
-        <h1 className="m-0 text-[22px] font-semibold tracking-[-0.01em]">InstallGate CLI</h1>
-        <p className="mt-1 text-sm text-[#4B5563]">Pre-install trust gate · interaction mockup with sample output</p>
+        <h1 className="m-0 text-[18px] font-semibold tracking-[-0.02em]">InstallGate</h1>
+        <p className="mt-1 text-[13px] text-[#4B5563]">Sample output. Same layout as the live gate. y copies, nothing installs.</p>
       </header>
       <div className="flex flex-wrap items-end gap-6">
-        <Segmented id="m-scenario" label="Scenario" options={Object.entries(SCENARIOS).map(([k, s]) => [k, s.label] as const)} value={key} onPick={setKey} />
+        <Segmented
+          id="m-scenario"
+          label="Scenario"
+          options={Object.entries(SCENARIOS).map(([k, s]) => [k, s.label] as const)}
+          value={key}
+          onPick={pick}
+        />
         <Segmented id="m-gate" label="Gate" options={[["on", "On"], ["off", "Off"]] as const} value={gate} onPick={setGate} danger="off" />
       </div>
-      <TerminalFrame title="agent-workspace — zsh · sample output">
-        <Prompt>
-          <span>{gate === "off" ? d.offCmd : d.cmd.startsWith("installgate") ? d.cmd : `installgate check "${d.cmd}"`}</span>
-        </Prompt>
+      <TerminalFrame
+        title={`ig ${d.cmd}`}
+        scrollKey={`${key}-${gate}-${confirm}`}
+        footer={
+          <Prompt who="">
+            ig <Cursor />
+          </Prompt>
+        }
+      >
+        {gate === "off" ? <Prompt who="">{d.offCmd}</Prompt> : <Checking command={d.cmd.replace(/^installgate check /, "")} />}
         {gate === "off" ? (
           d.off.map(([t, c], i) => (
             <div key={i} className="whitespace-pre-wrap" style={{ color: OFF_COLOR[c] }}>
@@ -183,95 +215,95 @@ export function MockupDemo() {
           ))
         ) : (
           <>
-            <div style={{ color: C.dim }}>InstallGate 0.1.0 · policy v1 · cache warm · inference: Nebius Token Factory</div>
-            <div className="mt-3">
+            <div className="mt-1">
               {d.steps.map(([tone, name, detail, ms]) => (
                 <StepRow key={name} tone={tone} name={name} detail={detail} ms={ms} />
               ))}
             </div>
-            <div className="mt-[18px] flex flex-wrap items-center gap-3">
-              <span className="rounded px-2.5 py-px font-bold text-[#0B0E14]" style={{ background: vColor }}>
-                {vGlyph} {d.verdict}
-              </span>
-              <span className="font-bold">{d.target}</span>
-              <span style={{ color: C.muted }}>{d.sub}</span>
+            <Banner verdict={d.verdict} name={d.target} code={d.code} />
+            <div style={{ color: C.dim }}>
+              {"  "}
+              {d.sub}
             </div>
-            <Heading>Evidence</Heading>
             {d.evidence.length === 0 ? (
-              <div style={{ color: C.muted }}>No findings. Nothing to explain, so no model was called.</div>
+              <div style={{ color: C.dim }}>{"  "}no findings · model skipped</div>
             ) : (
-              <>
-                <div className={grid4} style={{ color: C.skip }}>
-                  <span>ID</span>
-                  <span>SEVERITY</span>
-                  <span>SOURCE</span>
-                  <span>FINDING</span>
-                </div>
-                {d.evidence.map(([id, sev, src, text]) => (
-                  <div key={id} className={grid4}>
-                    <span style={{ color: C.link }}>{id}</span>
-                    <span style={{ color: sev.startsWith("hard") ? C.bad : sev.startsWith("soft") ? C.warn : C.dim }}>{sev}</span>
-                    <span style={{ color: C.muted }}>{src}</span>
-                    <span>{text}</span>
+              d.evidence.map(([id, sev, src, text]) => {
+                const tone = sev.startsWith("hard") ? C.bad : sev.startsWith("soft") ? C.warn : C.skip;
+                return (
+                  <div key={id} className="whitespace-pre-wrap">
+                    <div>
+                      <span style={{ color: tone }}>×</span> {text}
+                    </div>
+                    <div style={{ color: C.dim }}>
+                      {"   ╭─[ "}
+                      <span style={{ color: C.link }}>
+                        {id} {sev} · {src}
+                      </span>
+                      {" ]"}
+                    </div>
+                    <div style={{ color: C.dim }}>{"   ╰──"}</div>
                   </div>
-                ))}
-              </>
+                );
+              })
             )}
-            {d.why.length > 0 && (
-              <>
-                <Heading>Why</Heading>
-                {d.why.map(([text, cite]) => (
-                  <div key={text}>
-                    <span style={{ color: C.skip }}>• </span>
-                    {text} <span style={{ color: C.link }}>[{cite}]</span>
-                  </div>
-                ))}
-                <div style={{ color: C.skip }}>{d.validator}</div>
-              </>
-            )}
+            {d.why.map(([text, cite]) => (
+              <div key={text} style={{ color: C.skip }}>
+                {"  "}note: {text} [{cite}]
+              </div>
+            ))}
+            {d.validator ? (
+              <div style={{ color: C.skip }}>
+                {"  "}note: {d.validator}
+              </div>
+            ) : null}
             {d.fix && (
               <>
-                <div className="mt-[18px] flex items-center justify-between gap-4">
-                  <span className="font-bold">
-                    Suggested fix <span className="font-normal" style={{ color: C.skip }}>({d.fix.source})</span>
-                  </span>
-                  <CopyButton key={key} text={d.fix.to} label="Copy fix" />
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div style={{ color: C.ok }}>
+                    {"  "}help: use substitute ({d.fix.source})
+                  </div>
+                  <CopyButton key={key} text={d.fix.to} label="Copy" />
                 </div>
                 <Diff from={d.fix.from} to={d.fix.to} />
-                <div className="mt-1.5" style={{ color: C.muted }}>
-                  {d.fix.note}
+                <div style={{ color: C.dim }}>
+                  {"  "}note: {d.fix.note}
                 </div>
               </>
             )}
             {!d.fix && d.verdict !== "ALLOW" && (
               <>
-                <Heading>Suggested fix</Heading>
-                <div style={{ color: C.warn }}>▲ No safe substitute. The closed candidate set has no match, so InstallGate will not guess a name.</div>
-                <div style={{ color: C.muted }}>Ask a human which package was meant, then check that name.</div>
+                <div style={{ color: C.warn }}>{"  "}help: no safe substitute in the closed candidate set</div>
+                <div style={{ color: C.dim }}>{"  "}note: ask a human which package was meant, then check that name</div>
               </>
             )}
             {d.allow && (
               <>
-                <Heading>Proceed</Heading>
-                <div className="whitespace-pre-wrap rounded-md border border-[#1F2633] px-3 py-0.5 text-[#7EE2AE]">{d.allow}</div>
-                <div className="mt-1.5" style={{ color: C.muted }}>
-                  Pinned to the exact artifact that was checked. InstallGate does not run it.
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 break-all" style={{ color: C.ok }}>
+                    {"  "}help: {d.allow}
+                  </div>
+                  <CopyButton key={key} text={d.allow} label="Copy" />
                 </div>
+                <div style={{ color: C.dim }}>{"  "}note: pinned artefact. Confirm to copy. The browser never installs.</div>
               </>
             )}
-            <div className="mt-[18px] border-t border-[#1F2633] pt-2.5" style={{ color: C.dim }}>
-              {d.receipt}
+            <div style={{ color: C.dim }}>
+              {"  "}note: {d.receipt} · {d.total}
             </div>
-            <div style={{ color: vColor }}>
-              {d.verdict} · {d.total}
-            </div>
+            {runCmd && (
+              <ConfirmLine
+                display={runCmd}
+                defaultYes={d.verdict === "ALLOW"}
+                state={confirm}
+                onAnswer={(yes) => {
+                  if (yes) void navigator.clipboard?.writeText(runCmd).catch(() => undefined);
+                  setConfirm(yes ? "yes" : "no");
+                }}
+              />
+            )}
           </>
         )}
-        <div className="mt-2.5">
-          <Prompt>
-            <Cursor />
-          </Prompt>
-        </div>
       </TerminalFrame>
     </main>
   );

@@ -157,12 +157,18 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
                 return _logged(_closed(target, version))
             try:
                 facts = await fetch(client, target, cache)
+                pin = facts.get("pin_version") or facts.get("latest_version")
+                latest = facts.get("latest_version")
+                if facts.get("exists") and pin and latest and pin != latest:
+                    registry_detail = f"exists · {pin} for this Python"
+                elif facts.get("exists"):
+                    registry_detail = f"exists · latest {latest}"
+                else:
+                    registry_detail = "not found"
                 report(
                     "registry",
                     "ok" if facts.get("exists") else "bad",
-                    f"exists · latest {facts.get('latest_version')}"
-                    if facts.get("exists")
-                    else "not found",
+                    registry_detail,
                 )
                 osv_facts = await osv.fetch(client, target, cache)
                 mal = osv_facts.get("mal_ids") or []
@@ -322,7 +328,10 @@ async def _substitute(
         except UpstreamError as exc:
             state.record("recheck", exc)
             facts = {}
-        version, digest = facts.get("latest_version"), facts.get("latest_sha256")
+        if facts.get("pin_version") and facts.get("pin_sha256"):
+            version, digest = facts.get("pin_version"), facts.get("pin_sha256")
+        else:
+            version, digest = facts.get("latest_version"), facts.get("latest_sha256")
         if facts.get("exists") and isinstance(version, str) and isinstance(digest, str):
             pins[alias] = (version, digest)
 

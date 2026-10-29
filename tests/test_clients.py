@@ -9,6 +9,8 @@ from contracts.contracts import Ecosystem, TargetRef
 from engine import cache as cache_module
 from engine.cache import Cache
 from engine.clients import UpstreamError, get_json, pypi
+from engine.stage1 import enrich_target
+from packaging.tags import Tag
 
 
 def _client(handler: httpx.MockTransport) -> httpx.AsyncClient:
@@ -69,6 +71,72 @@ def test_cache_serves_fresh_entries_and_drops_expired_ones(
         assert cache.get("osv", "requests") is None
     finally:
         cache.close()
+
+
+def _file(
+    filename: str,
+    sha: str,
+    *,
+    requires_python: str,
+    uploaded: str = "2024-01-01T00:00:00Z",
+) -> dict[str, object]:
+    return {
+        "filename": filename,
+        "requires_python": requires_python,
+        "yanked": False,
+        "upload_time_iso_8601": uploaded,
+        "digests": {"sha256": sha},
+    }
+
+
+def test_pypi_summarise_pins_a_wheel_this_interpreter_can_install() -> None:
+    sha_312 = "a" * 64
+    sha_311 = "b" * 64
+    body = {
+        "info": {"version": "2.5.4"},
+        "releases": {
+            "2.5.4": [
+                _file(
+                    "numpy-2.5.4-cp312-cp312-macosx_11_0_arm64.whl",
+                    sha_312,
+                    requires_python=">=3.12",
+                    uploaded="2026-10-01T00:00:00Z",
+                )
+            ],
+            "2.2.6": [
+                _file(
+                    "numpy-2.2.6-cp311-cp311-macosx_11_0_arm64.whl",
+                    sha_311,
+                    requires_python=">=3.10",
+                    uploaded="2025-01-01T00:00:00Z",
+                )
+            ],
+        },
+    }
+    tags = [Tag("cp311", "cp311", "macosx_11_0_arm64")]
+    facts = pypi.summarise(body, python=(3, 11), tags=tags)
+    assert facts["latest_version"] == "2.5.4"
+    assert facts["pin_version"] == "2.2.6"
+    assert facts["pin_sha256"] == sha_311
+    py312 = pypi.summarise(body, python=(3, 12), tags=[Tag("cp312", "cp312", "macosx_11_0_arm64")])
+    assert py312["pin_version"] == "2.5.4"
+    assert py312["pin_sha256"] == sha_312
+
+
+def test_enrich_unpinned_uses_the_compatible_pin() -> None:
+    ref = TargetRef(ecosystem=Ecosystem.PYPI, name="numpy")
+    pinned = enrich_target(
+        ref,
+        {
+            "exists": True,
+            "latest_version": "2.5.4",
+            "latest_sha256": "a" * 64,
+            "pin_version": "2.2.6",
+            "pin_sha256": "b" * 64,
+        },
+    )
+    assert pinned.version == "2.2.6"
+    assert pinned.artifact_sha256 == "b" * 64
 
 
 def test_pypi_fetch_hits_the_network_once_then_uses_the_cache(tmp_path: Path) -> None:

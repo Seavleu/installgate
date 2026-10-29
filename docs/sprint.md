@@ -65,7 +65,7 @@ Also uncommitted, from a separate session: `POST /check/stream`, MCP over HTTP a
 - Fixed 30 Oct (uncommitted): the explain call saw only evidence ids, never what they record, so sentences were "due to EV-1, EV-2". `route()` now passes one fact line per evidence item. Live `pip install numpy`: "The latest release of numpy, version 2.5.4, was uploaded 18 days ago [EV-1]."
 - Fixed 30 Oct (uncommitted): Tavily news search returned articles that never named the package (OpenAI, GitLab, PHP for `numpy`). Each became soft evidence, pushed risk to 0.95, and triggered Ultra. Hits must now name the package. Live `numpy`: risk 0.25, no Ultra, model cost $0.00035 instead of $0.00202.
 - The validator checks that a cited id exists, not that it supports the sentence.
-- An unpinned package whose latest release is under 30 days old gets REVIEW with no substitute. Pinning the previous release older than 30 days would be a closed-set candidate; not built.
+- P6 is first-upload only. A recent release of an established project (numpy, django) is ALLOW when pinned by Stage 1. Compromised updates stay on P2 (MAL-) and P8 (maintainer change). `new_release` still fires when `first_upload` is missing.
 - Ultra never runs on the benchmark: every REVIEW case has risk 0.25.
 - `eval/runner.py` is Stage 1 only. It does not call `check()` or `route()`. `LIVE_TESTS=1` gates only `router.compare`.
 - The benchmark is 26% ALLOW (39 of 150), so the "≥ 70% zero model calls" target is not measured by it.
