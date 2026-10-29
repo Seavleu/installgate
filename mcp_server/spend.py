@@ -44,16 +44,17 @@ def _day(now: datetime | None) -> str:
     return moment.astimezone(UTC).date().isoformat()
 
 
-def _read() -> dict[str, float]:
+def _read() -> dict[str, float] | None:
+    """Today's ledger. None when the file exists but cannot be read."""
     path = ledger_path()
     if not path.exists():
         return {}
     try:
         loaded = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
-        return {}
+        return None
     if not isinstance(loaded, dict):
-        return {}
+        return None
     out: dict[str, float] = {}
     for key, value in loaded.items():
         if isinstance(key, str) and isinstance(value, int | float):
@@ -62,7 +63,11 @@ def _read() -> dict[str, float]:
 
 
 def spent_today(now: datetime | None = None) -> float:
-    return _read().get(_day(now), 0.0)
+    """An unreadable ledger counts as the whole cap spent, so the budget fails closed."""
+    ledger = _read()
+    if ledger is None:
+        return cap_usd()
+    return ledger.get(_day(now), 0.0)
 
 
 def over_cap(now: datetime | None = None) -> bool:
@@ -72,11 +77,14 @@ def over_cap(now: datetime | None = None) -> bool:
 def add_spend(amount: float, now: datetime | None = None) -> float:
     """Add a model cost to today's total. A non-positive amount is ignored."""
     day = _day(now)
-    current = _read().get(day, 0.0)
+    current = spent_today(now)
     if amount <= 0:
         return current
     updated = current + amount
     path = ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({day: updated}))
+    # A torn write would read back as {} and reset today's spend to zero.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({day: updated}))
+    os.replace(tmp, path)
     return updated

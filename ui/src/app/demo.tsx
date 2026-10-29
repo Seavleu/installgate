@@ -1,122 +1,70 @@
 "use client";
 
-import { useState } from "react";
-import { GateVerdict } from "@contracts";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { C, CopyButton, Cursor, Prompt, Segmented, StepRow, TerminalFrame, VerdictView } from "./terminal";
+import { useMcpCheck, useStreamCheck } from "./use-checks";
 
-const EXAMPLES = [
-  "pip install requests",
-  "pip install reqeusts",
-  "pip install no-such-pkg-xyz",
+const SCENARIOS = [
+  { label: "Typosquat", command: "pip install reqeusts" },
+  { label: "Hallucinated name", command: "pip install no-such-pkg-xyz" },
+  { label: "Clean package", command: "pip install requests" },
+  { label: "npm", command: "npm install left-pad" },
 ];
 
-const VERDICT_STYLE: Record<string, string> = {
-  ALLOW: "bg-emerald-50 text-emerald-900 ring-emerald-200",
-  REVIEW: "bg-amber-50 text-amber-950 ring-amber-200",
-  BLOCK: "bg-red-50 text-red-900 ring-red-200",
+const STAGE_NAME: Record<string, string> = {
+  parse: "Parse target",
+  registry: "Registry metadata",
+  osv: "OSV.dev",
+  checks: "Deterministic checks",
+  tavily: "Tavily (untrusted)",
+  policy: "Policy",
+  model: "Nemotron · Token Factory",
+  validate: "Validator",
+  substitute: "Substitute",
+  pin: "Pin",
 };
 
-function stripNulls(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripNulls);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([, item]) => item !== null)
-        .map(([key, item]) => [key, stripNulls(item)]),
-    );
-  }
-  return value;
-}
-
-function money(value: number): string {
-  if (value === 0) return "$0";
-  if (value < 0.01) return `$${value.toFixed(4)}`;
-  return `$${value.toFixed(2)}`;
-}
-
-function observedLine(observed: Record<string, unknown>): string {
-  return Object.entries(observed)
-    .slice(0, 4)
-    .map(([key, item]) => `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`)
-    .join(" · ");
-}
-
-function substituteLine(command: string, verdict: GateVerdict): string | null {
-  const remediation = verdict.remediation;
-  if (remediation?.status !== "VERIFIED_SUBSTITUTE" || !remediation.approved_requirement) {
-    return null;
-  }
-  const name = remediation.original.name;
-  if (command.includes(name)) return command.replace(name, remediation.approved_requirement);
-  return remediation.approved_requirement;
-}
+const AGENT_DOES = {
+  proceed: "Agent may run the pinned command. InstallGate never runs it.",
+  use_substitute: "Agent shows you the diff and waits for your confirmation.",
+  ask_human: "Agent stops and asks you which package you meant.",
+  abort: "Agent stops.",
+} as const;
 
 export function Demo() {
-  const [command, setCommand] = useState(EXAMPLES[0]);
-  const [checked, setChecked] = useState<string | null>(null);
-  const [verdict, setVerdict] = useState<GateVerdict | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [spendCapped, setSpendCapped] = useState(false);
+  const [view, setView] = useState<"terminal" | "mcp">("terminal");
+  const [command, setCommand] = useState(SCENARIOS[0].command);
+  const [gate, setGate] = useState<"on" | "off">("on");
+  const [out, setOut] = useState<"pretty" | "json">("pretty");
+  const [origin, setOrigin] = useState("http://localhost:3000");
+  const stream = useStreamCheck();
+  const agent = useMcpCheck();
 
-  async function run(next: string) {
+  useEffect(() => setOrigin(window.location.origin), []);
+
+  function submit(next: string) {
     const trimmed = next.trim();
-    if (!trimmed || pending) return;
-    setPending(true);
-    setError(null);
-    setSpendCapped(false);
-    setChecked(trimmed);
-    setVerdict(null);
-    try {
-      const response = await fetch("/api/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: trimmed }),
-      });
-      const body: unknown = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (response.status === 429) {
-          setError("This demo is limited to a few checks a minute. Wait and try again.");
-        } else if (response.status === 404 || response.status === 502) {
-          setError("The check API is not running on port 8000.");
-        } else {
-          setError(`The check returned HTTP ${response.status}.`);
-        }
-        return;
-      }
-      setSpendCapped(response.headers.get("x-installgate-spend") === "capped");
-      const parsed = GateVerdict.safeParse(stripNulls(body));
-      if (!parsed.success) {
-        setError("The check returned a verdict this screen does not recognise.");
-        return;
-      }
-      setVerdict(parsed.data);
-    } catch {
-      setError("The check API is not running on port 8000.");
-    } finally {
-      setPending(false);
-    }
+    if (!trimmed) return;
+    if (view === "mcp") void agent.run(trimmed);
+    else if (gate === "on") void stream.run(trimmed);
+    else stream.skip(trimmed);
   }
 
-  const shown = checked ?? command.trim();
-  const safe = verdict && checked ? substituteLine(checked, verdict) : null;
+  const pending = view === "mcp" ? agent.state.pending : stream.state.pending;
+  const scenario = SCENARIOS.find((s) => s.command === command.trim())?.command ?? null;
+  const mcpConfig = JSON.stringify({ mcpServers: { installgate: { url: `${origin}/api/mcp` } } }, null, 2);
 
-  return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <header className="max-w-2xl">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-stone-500">InstallGate</p>
-        <h1 className="mt-2 text-3xl text-stone-950">Would you let an agent run this install?</h1>
-        <p className="mt-3 text-lg text-stone-700">
-          The same command, with the gate off and with the gate on. Nothing is installed.
-        </p>
-      </header>
-
-      <form
-        className="mt-8 flex flex-col gap-3 sm:flex-row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void run(command);
-        }}
-      >
+  const input = (
+    <form
+      className="mt-2.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(command);
+      }}
+    >
+      <Prompt who={view === "mcp" ? "agent" : "~/agent-workspace"}>
+        <span>{view === "mcp" ? "check_install " : gate === "on" ? "installgate check " : ""}</span>
         <label className="sr-only" htmlFor="command">
           Install command
         </label>
@@ -124,136 +72,154 @@ export function Demo() {
           id="command"
           value={command}
           onChange={(event) => setCommand(event.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-stone-300 bg-white px-3 py-2 font-mono text-sm text-stone-950 outline-none ring-stone-950 focus:ring-2"
           spellCheck={false}
+          autoComplete="off"
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-[#D6DEEB] caret-[#D6DEEB] outline-none"
         />
-        <button
-          type="submit"
-          disabled={pending || command.trim().length === 0}
-          className="rounded-md bg-stone-950 px-4 py-2 text-sm text-stone-50 disabled:opacity-50"
-        >
-          {pending ? "Checking…" : "Check"}
-        </button>
-      </form>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {EXAMPLES.map((example) => (
-          <button
-            key={example}
-            type="button"
-            onClick={() => {
-              setCommand(example);
-              void run(example);
-            }}
-            className="rounded-full border border-stone-300 bg-white px-3 py-1 font-mono text-xs text-stone-700 hover:border-stone-950"
-          >
-            {example}
-          </button>
-        ))}
+        <span style={{ color: C.skip }}>{pending ? "running…" : "↵ to run"}</span>
+      </Prompt>
+    </form>
+  );
+
+  const s = stream.state;
+  const a = agent.state;
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-[1280px] flex-col gap-4 px-8 py-7">
+      <header className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <h1 className="m-0 text-[22px] font-semibold tracking-[-0.01em]">InstallGate</h1>
+          <p className="mt-1 text-sm text-[#4B5563]">
+            Pre-install trust gate for coding agents · live, nothing is installed ·{" "}
+            <Link href="/mockup" className="text-[#14171C] underline">
+              design mockup
+            </Link>
+          </p>
+        </div>
+        <p className="m-0 text-[13px] text-[#4B5563]">Metadata only · InstallGate never runs the command</p>
+      </header>
+
+      <div className="flex flex-wrap items-end gap-6">
+        <Segmented
+          id="lbl-view"
+          label="Caller"
+          options={[["terminal", "Terminal"], ["mcp", "Agent (MCP)"]] as const}
+          value={view}
+          onPick={setView}
+        />
+        <Segmented
+          id="lbl-scenario"
+          label="Scenario"
+          options={SCENARIOS.map((x) => [x.command, x.label] as const)}
+          value={scenario}
+          onPick={(next) => {
+            setCommand(next);
+            submit(next);
+          }}
+        />
+        {view === "terminal" && (
+          <Segmented id="lbl-gate" label="Gate" options={[["on", "On"], ["off", "Off"]] as const} value={gate} onPick={setGate} danger="off" />
+        )}
+        <Segmented id="lbl-output" label="Output" options={[["pretty", "Pretty"], ["json", "JSON"]] as const} value={out} onPick={setOut} />
       </div>
 
-      <div className="mt-8 grid items-start gap-4 md:grid-cols-2">
-        <section className="rounded-lg bg-stone-950 p-5 text-stone-100">
-          <h2 className="font-mono text-xs uppercase tracking-[0.16em] text-stone-400">Gate off</h2>
-          <p className="mt-4 text-sm text-stone-300">The agent would run this.</p>
-          <pre className="mt-3 overflow-x-auto font-mono text-sm text-stone-50">{shown || "—"}</pre>
-        </section>
-
-        <section className="rounded-lg border border-stone-300 bg-white p-5">
-          <h2 className="font-mono text-xs uppercase tracking-[0.16em] text-stone-500">Gate on</h2>
-          {pending && <p className="mt-4 text-sm text-stone-600">Reading registry metadata. The package is not installed.</p>}
-          {error && <p className="mt-4 text-sm text-red-800">{error}</p>}
-          {!pending && !error && !verdict && (
-            <p className="mt-4 text-sm text-stone-600">Check the command to see the verdict.</p>
+      {view === "terminal" ? (
+        <TerminalFrame title="agent-workspace — zsh · live from POST /check/stream">
+          {!s.command && (
+            <div style={{ color: C.dim }}># Pick a scenario, or type any pip or npm install command and press Enter. Each stage prints when it finishes.</div>
           )}
-          {verdict && (
-            <div className="mt-4 space-y-5">
-              <p className={`inline-block rounded-md px-2 py-1 font-mono text-sm ring-1 ${VERDICT_STYLE[verdict.final_verdict]}`}>
-                {verdict.final_verdict}
-                <span className="ml-2 font-normal text-current/80">{verdict.next_action.replaceAll("_", " ")}</span>
-              </p>
-              {verdict.failed_closed && verdict.final_verdict === "REVIEW" && (
-                <p className="text-sm text-amber-900">A lookup failed, so this stays a review.</p>
-              )}
-              {spendCapped && (
-                <p className="text-sm text-amber-900">
-                  The daily model budget is spent. This verdict is from the decision engine.
-                </p>
-              )}
-              <p className="text-sm text-stone-600">InstallGate did not run this command.</p>
-
-              <div>
-                <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-stone-500">Evidence</h3>
-                {verdict.evidence.length === 0 ? (
-                  <p className="mt-2 text-sm text-stone-700">No findings. The artefact is pinned.</p>
-                ) : (
-                  <ul className="mt-2 space-y-2">
-                    {verdict.evidence.map((item) => (
-                      <li key={item.id} className="text-sm">
-                        <span className="font-mono text-stone-950">{item.id}</span>{" "}
-                        <span className="text-stone-700">{item.kind}</span>{" "}
-                        <span className="font-mono text-xs text-stone-500">{item.severity}</span>
-                        <span className="mt-0.5 block text-stone-600">{observedLine(item.observed)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div>
-                <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-stone-500">Explanation</h3>
-                {verdict.explanation.length === 0 ? (
-                  <p className="mt-2 text-sm text-stone-700">
-                    {verdict.receipt && verdict.receipt.calls.length > 0
-                      ? "Every explanation sentence must cite an evidence id. None did, so this panel is empty."
-                      : "A clean allow does not call the model."}
-                  </p>
-                ) : (
-                  <ul className="mt-2 space-y-2">
-                    {verdict.explanation.map((sentence) => (
-                      <li key={sentence.text} className="text-sm text-stone-800">
-                        {sentence.text}{" "}
-                        <span className="font-mono text-xs text-stone-500">{sentence.evidence_ids.join(" ")}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div>
-                <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-stone-500">Command diff</h3>
-                {safe && checked ? (
-                  <pre className="mt-2 overflow-x-auto font-mono text-sm">
-                    <div className="text-red-800">- {checked}</div>
-                    <div className="text-emerald-800">+ {safe}</div>
-                  </pre>
-                ) : (
-                  <p className="mt-2 text-sm text-stone-700">No substitute.</p>
-                )}
-              </div>
-
-              <div>
-                <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-stone-500">Cost receipt</h3>
-                {verdict.receipt ? (
-                  <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                    <dt className="text-stone-500">This check</dt>
-                    <dd className="font-mono">{money(verdict.receipt.total_cost_usd)}</dd>
-                    <dt className="text-stone-500">If every call were Ultra</dt>
-                    <dd className="font-mono">{money(verdict.receipt.counterfactual_all_ultra_usd)}</dd>
-                    <dt className="text-stone-500">Saved</dt>
-                    <dd className="font-mono">{verdict.receipt.savings_pct.toFixed(0)}%</dd>
-                    <dt className="text-stone-500">Decision engine</dt>
-                    <dd className="font-mono">{verdict.receipt.deterministic_only_ms} ms</dd>
-                    <dt className="text-stone-500">Model calls</dt>
-                    <dd className="font-mono">{verdict.receipt.calls.length}</dd>
-                  </dl>
-                ) : (
-                  <p className="mt-2 text-sm text-stone-700">No receipt.</p>
-                )}
-              </div>
+          {s.command && (
+            <Prompt>
+              <span>{s.gateOff ? s.command : `installgate check "${s.command}"`}</span>
+            </Prompt>
+          )}
+          {s.gateOff && (
+            <div className="mt-1" style={{ color: "#FF9B94" }}>
+              # No check ran. The agent runs this as-is, with this shell&apos;s credentials in reach.
             </div>
           )}
-        </section>
-      </div>
+
+          {out === "json" &&
+            s.raw.map((line, i) => (
+              <div key={i} className="whitespace-pre-wrap break-all">
+                {line}
+              </div>
+            ))}
+
+          {out === "pretty" && s.command && !s.gateOff && (
+            <div className="mt-1">
+              {s.events.map((e, i) => (
+                <StepRow key={i} tone={e.status} name={STAGE_NAME[e.stage] ?? e.stage} detail={e.detail} ms={`${e.ms} ms`} />
+              ))}
+            </div>
+          )}
+          {s.pending && (
+            <div style={{ color: C.dim }}>
+              <Cursor /> reading metadata, the package is not installed
+            </div>
+          )}
+          {s.error && <div style={{ color: C.bad }}>{s.error}</div>}
+          {out === "pretty" && s.verdict && s.command && (
+            <VerdictView verdict={s.verdict} command={s.command} spendCapped={s.spendCapped} elapsedMs={s.elapsedMs} />
+          )}
+          {input}
+        </TerminalFrame>
+      ) : (
+        <TerminalFrame title={`coding agent — MCP Streamable HTTP · ${origin}/api/mcp`}>
+          {!a.command && (
+            <div style={{ color: C.dim }}>
+              # This is what a coding agent does before it installs: call the real check_install tool over MCP.
+              <br /># Pick a scenario, or type an install command and press Enter.
+            </div>
+          )}
+          {a.frames.map((f, i) => (
+            <div key={i} className={f.dir === "→" ? "mt-2" : ""}>
+              <div style={{ color: f.dir === "→" ? C.link : f.bad ? C.bad : C.ok }}>
+                {f.dir} {f.title}
+              </div>
+              {(f.dir === "→" || out === "json") && (
+                <div className="whitespace-pre-wrap break-all" style={{ color: C.dim }}>
+                  {f.body}
+                </div>
+              )}
+            </div>
+          ))}
+          {a.pending && (
+            <div style={{ color: C.dim }}>
+              <Cursor /> waiting for the tool result
+            </div>
+          )}
+          {a.error && <div style={{ color: C.bad }}>{a.error}</div>}
+          {a.verdict && a.command && (
+            <>
+              <div className="mt-[18px] font-bold">
+                Agent decision: <span style={{ color: C.warn }}>{a.verdict.next_action.replaceAll("_", " ")}</span>
+              </div>
+              <div style={{ color: C.muted }}>{AGENT_DOES[a.verdict.next_action]}</div>
+              {out === "json" ? (
+                <pre className="m-0 mt-2 whitespace-pre-wrap break-all font-[inherit]">{JSON.stringify(a.raw, null, 2)}</pre>
+              ) : (
+                <VerdictView verdict={a.verdict} command={a.command} spendCapped={false} elapsedMs={a.elapsedMs} />
+              )}
+            </>
+          )}
+          {input}
+        </TerminalFrame>
+      )}
+
+      <section className="flex flex-wrap items-start justify-between gap-4 rounded-xl bg-[#DDE1E7] p-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="m-0 text-sm font-semibold">Test it from your own agent</h2>
+          <p className="mt-1 text-[13px] text-[#4B5563]">
+            Add this MCP server to Cursor or Claude, then ask the agent to install <code>reqeusts</code>. It calls{" "}
+            <code>check_install</code> first and gets the same verdict you see here.
+          </p>
+          <pre className="m-0 mt-2 overflow-x-auto rounded-md bg-[#0B0E14] p-3 font-mono text-xs text-[#D6DEEB]">{mcpConfig}</pre>
+        </div>
+        <div className="flex gap-2 pt-6">
+          <CopyButton text={mcpConfig} label="Copy MCP config" />
+        </div>
+      </section>
     </main>
   );
 }

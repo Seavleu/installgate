@@ -40,13 +40,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          package_json_file: ui/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Lint and build
         working-directory: ui
         run: |
-          pnpm install
+          pnpm install --frozen-lockfile
           pnpm lint
           pnpm build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the compose images
+        run: |
+          cp .env.example .env
+          docker compose build
+          docker compose config --quiet

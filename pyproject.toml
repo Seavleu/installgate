@@ -26,6 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
+ig = "mcp_server.cli:main"
 installgate = "mcp_server.cli:main"
 
 [project.optional-dependencies]
