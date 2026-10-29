@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   C,
   Checking,
@@ -85,7 +85,7 @@ export function Demo() {
   const [command, setCommand] = useState("");
   const [gate, setGate] = useState<"on" | "off">("on");
   const [out, setOut] = useState<"pretty" | "json">("pretty");
-  const [origin, setOrigin] = useState("http://localhost:3000");
+  const [origin, setOrigin] = useState("");
   const [api, setApi] = useState<"live" | "down" | "…">("…");
   const [confirm, setConfirm] = useState<ConfirmState>("wait");
   const [log, setLog] = useState<StreamState[]>([]);
@@ -95,7 +95,22 @@ export function Demo() {
   const stream = useStreamCheck();
   const agent = useMcpCheck();
 
-  useEffect(() => setOrigin(window.location.origin), []);
+  useEffect(() => {
+    const here = window.location.origin;
+    const loopback = /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?$/i.test(here);
+    if (!loopback) {
+      setOrigin(here);
+      return;
+    }
+    fetch("/api/mcp", { headers: { Accept: "application/json" } })
+      .then((r) => r.json())
+      .then((body: { url?: string | null }) => {
+        if (typeof body.url === "string" && body.url.startsWith("http")) {
+          setOrigin(body.url.replace(/\/api\/mcp\/?$/, ""));
+        }
+      })
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
     prompt.current?.focus();
   }, [view]);
@@ -163,11 +178,8 @@ export function Demo() {
         submit(command);
       }}
     >
-      <Prompt who={view === "mcp" ? "agent" : ""}>
+      <Prompt who="~">
         <span>{view === "mcp" ? "check_install " : "ig "}</span>
-        <label className="sr-only" htmlFor="command">
-          Install command
-        </label>
         <input
           ref={prompt}
           id="command"
@@ -181,10 +193,11 @@ export function Demo() {
           }}
           spellCheck={false}
           autoComplete="off"
+          aria-label="install command"
           placeholder="pip install numpy"
           className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-[#D6DEEB] caret-[#D6DEEB] outline-none placeholder:text-[#3A4252]"
         />
-        <span style={{ color: C.skip }}>{pending ? "running…" : "↵"}</span>
+        <span style={{ color: C.skip }}>{pending ? "running…" : ""}</span>
       </Prompt>
     </form>
   );
@@ -425,21 +438,126 @@ export function Demo() {
         )}
       </div>
 
-      <details className="rounded-xl bg-[#DDE1E7] px-4 py-3">
-        <summary className="cursor-pointer text-[13px] font-semibold">
-          MCP for Cursor or Claude
-          <span className="ml-2 font-normal text-[#4B5563]">
-            same GateVerdict as <code>ig</code>
-            {pin ? ` · last pin ${pin}` : ""}
-          </span>
-        </summary>
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-          <CopyButton text={mcpConfig} label="Copy MCP config" />
-          <pre className="m-0 w-full overflow-x-auto rounded-md bg-[#0B0E14] p-3 font-mono text-[11px] text-[#D6DEEB]">
-            {mcpConfig}
-          </pre>
-        </div>
-      </details>
+      <Playbook origin={origin} mcpConfig={mcpConfig} pin={pin} />
     </main>
+  );
+}
+
+const CLAUDE_ADD = (origin: string) =>
+  `claude mcp add installgate --transport http ${origin}/api/mcp`;
+
+function Playbook({ origin, mcpConfig, pin }: { origin: string; mcpConfig: string; pin?: string }) {
+  const [agent, setAgent] = useState<"cursor" | "claude" | "cli">("cursor");
+  const claude = origin ? CLAUDE_ADD(origin) : "";
+  return (
+    <section className="rounded-xl border border-[#D4D8DE] bg-white px-5 py-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="m-0 text-[16px] font-semibold tracking-[-0.02em]">Add to your agent</h2>
+          <p className="mt-1 m-0 text-[13px] text-[#4B5563]">
+            Same <code>check_install</code> tool the live terminal uses. The MCP URL is this site&apos;s
+            public https origin — not localhost, and not a git clone.
+            {pin ? ` Last pin: ${pin}.` : ""}
+          </p>
+        </div>
+        <div role="tablist" aria-label="Agent" className="flex gap-0.5 rounded-lg bg-[#E8EAEE] p-0.5">
+          {(["cursor", "claude", "cli"] as const).map((key) => {
+            const label = { cursor: "Cursor", claude: "Claude Code", cli: "CLI" }[key];
+            const on = agent === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setAgent(key)}
+                className="h-8 cursor-pointer rounded-md px-3 text-[12px] font-medium"
+                style={{ background: on ? "#FFFFFF" : "transparent", color: on ? "#14171C" : "#4B5563" }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {!origin && (
+        <p className="mt-3 m-0 text-[13px] text-[#9B4D1A]">
+          Copy-paste is hidden until this page is opened on the public host (or{" "}
+          <code>PUBLIC_SITE_URL</code> is set). Claude cannot reach <code>localhost</code>.
+        </p>
+      )}
+      {agent === "cursor" && origin && (
+        <ol className="mt-4 m-0 list-none space-y-4 p-0">
+          <Step n={1} title="Create .cursor/mcp.json">
+            Project file, or the user file at <code>~/.cursor/mcp.json</code>.
+          </Step>
+          <Step n={2} title="Paste this server">
+            <Code text={mcpConfig} label="Copy config" />
+          </Step>
+          <Step n={3} title="Reload MCP, then ask">
+            <p className="m-0 text-[13px] text-[#4B5563]">
+              “Call <code>check_install</code> on <code>pip install reqeusts</code> before you install.”
+            </p>
+          </Step>
+        </ol>
+      )}
+      {agent === "claude" && origin && (
+        <ol className="mt-4 m-0 list-none space-y-4 p-0">
+          <Step n={1} title="Add the HTTP MCP server">
+            <Code text={claude} label="Copy install command" />
+          </Step>
+          <Step n={2} title="Start a new Claude Code session">
+            <p className="m-0 text-[13px] text-[#4B5563]">The tool name is <code>check_install</code>.</p>
+          </Step>
+          <Step n={3} title="Ask it to check first">
+            <p className="m-0 text-[13px] text-[#4B5563]">
+              “Before installing, run check_install on pip install reqeusts.”
+            </p>
+          </Step>
+        </ol>
+      )}
+      {agent === "cli" && (
+        <ol className="mt-4 m-0 list-none space-y-4 p-0">
+          <Step n={1} title="Check one install">
+            <Code text="ig pip install reqeusts" label="Copy command" />
+          </Step>
+          <Step n={2} title="Gate pip in this shell">
+            <Code text={HOOK} label="Copy hook" />
+          </Step>
+          <Step n={3} title="Then type pip as usual">
+            <p className="m-0 text-[13px] text-[#4B5563]">
+              ALLOW runs the real pip. REVIEW and BLOCK stop. InstallGate never imports the package.
+            </p>
+          </Step>
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#14171C] text-[11px] font-semibold text-white">
+        {n}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="m-0 text-[13px] font-semibold">{title}</p>
+        <div className="mt-1.5">{children}</div>
+      </div>
+    </li>
+  );
+}
+
+function Code({ text, label }: { text: string; label: string }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#1F2633] bg-[#0B0E14]">
+      <div className="flex items-center justify-between border-b border-[#1F2633] px-3 py-1.5">
+        <span className="font-sans text-[11px] text-[#8B95A7]">{label}</span>
+        <CopyButton text={text} label="Copy" />
+      </div>
+      <pre className="m-0 overflow-x-auto p-3 font-mono text-[12px] leading-5 text-[#D6DEEB]">{text}</pre>
+    </div>
   );
 }

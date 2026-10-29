@@ -142,7 +142,7 @@ The tool name is `check_install`. It takes one `command` string and returns the 
 uv run python -m mcp_server.server
 ```
 
-A client such as Cursor registers that command and then calls `check_install` before it installs anything. InstallGate still only returns the verdict.
+A client such as Cursor registers that command and then calls `check_install` before it installs anything. InstallGate still only returns the verdict. Company paste-in: [docs/playbook.md](docs/playbook.md).
 
 ```json
 {
