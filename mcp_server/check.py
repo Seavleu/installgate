@@ -29,12 +29,15 @@ from engine.parsers import ParseError, parse_command
 from engine.policy import PolicyError, evaluate, load_policy
 from engine.stage1 import run as stage1_run
 from remediate.candidates import ALIASES, Proposal, closed_set, propose
+from router.receipt import build_receipt
 from router.tavily import search
-from router.tiers import route
+from router.tiers import RouteResult, route
 from validator.citations import validate as validate_citations
 from validator.failclosed import FailClosedState
 from validator.failclosed import apply as apply_failclosed
 from validator.lattice import combine
+
+from mcp_server.spend import add_spend, mark_capped, over_cap, reset_capped
 
 _log = logging.getLogger("installgate.mcp")
 
@@ -74,22 +77,34 @@ def _closed(target: TargetRef, version: str) -> GateVerdict:
 
 
 def _logged(verdict: GateVerdict) -> GateVerdict:
-    _log.info(
-        json.dumps(
-            {
-                "request_id": verdict.request_id,
-                "stage": "check",
-                "final_verdict": verdict.final_verdict.value,
-                "failed_closed": verdict.failed_closed,
-            },
-            separators=(",", ":"),
-        )
-    )
+    payload: dict[str, object] = {
+        "request_id": verdict.request_id,
+        "stage": "check",
+        "final_verdict": verdict.final_verdict.value,
+        "failed_closed": verdict.failed_closed,
+    }
+    _log.info(json.dumps(payload, separators=(",", ":")))
     return verdict
+
+
+def _engine_only(deterministic_only_ms: int, tavily_calls: int) -> RouteResult:
+    """The budget is spent. Keep the policy verdict and do not call the model."""
+    return RouteResult(
+        llm_verdict=Verdict.ALLOW,
+        added_targets=(),
+        explanation=(),
+        receipt=build_receipt(
+            [],
+            deterministic_only_ms=deterministic_only_ms,
+            tavily_calls=tavily_calls,
+        ),
+        failed_closed=False,
+    )
 
 
 async def check(command: str) -> GateVerdict:
     """Parse one install command and return the gate verdict. Never runs it."""
+    reset_capped()
     version = _policy_version()
     state = FailClosedState()
     try:
@@ -128,15 +143,21 @@ async def check(command: str) -> GateVerdict:
                 if found.failed_closed:
                     state.record("tavily", "search failed")
             decision = evaluate(stage.target, evidence)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
             # shortcut: Nano may name extra targets, but this check only gates the parsed one
-            routed = await route(
-                policy_verdict=decision.verdict,
-                risk_score=decision.risk_score,
-                evidence_ids=[item.id for item in evidence],
-                command=command,
-                deterministic_only_ms=int((time.perf_counter() - started) * 1000),
-                tavily_calls=tavily_calls,
-            )
+            if decision.verdict != Verdict.ALLOW and over_cap():
+                mark_capped()
+                routed = _engine_only(elapsed_ms, tavily_calls)
+            else:
+                routed = await route(
+                    policy_verdict=decision.verdict,
+                    risk_score=decision.risk_score,
+                    evidence_ids=[item.id for item in evidence],
+                    command=command,
+                    deterministic_only_ms=elapsed_ms,
+                    tavily_calls=tavily_calls,
+                )
+                add_spend(routed.receipt.total_cost_usd)
             if routed.failed_closed:
                 state.record("route", "model call failed")
             cited = validate_citations(list(routed.explanation), evidence)

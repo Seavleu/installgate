@@ -56,12 +56,14 @@ export function Demo() {
   const [verdict, setVerdict] = useState<GateVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [spendCapped, setSpendCapped] = useState(false);
 
   async function run(next: string) {
     const trimmed = next.trim();
     if (!trimmed || pending) return;
     setPending(true);
     setError(null);
+    setSpendCapped(false);
     setChecked(trimmed);
     setVerdict(null);
     try {
@@ -72,9 +74,16 @@ export function Demo() {
       });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(response.status === 404 ? "The check API is not running on port 8000." : `The check returned HTTP ${response.status}.`);
+        if (response.status === 429) {
+          setError("This demo is limited to a few checks a minute. Wait and try again.");
+        } else if (response.status === 404 || response.status === 502) {
+          setError("The check API is not running on port 8000.");
+        } else {
+          setError(`The check returned HTTP ${response.status}.`);
+        }
         return;
       }
+      setSpendCapped(response.headers.get("x-installgate-spend") === "capped");
       const parsed = GateVerdict.safeParse(stripNulls(body));
       if (!parsed.success) {
         setError("The check returned a verdict this screen does not recognise.");
@@ -164,6 +173,11 @@ export function Demo() {
               </p>
               {verdict.failed_closed && verdict.final_verdict === "REVIEW" && (
                 <p className="text-sm text-amber-900">A lookup failed, so this stays a review.</p>
+              )}
+              {spendCapped && (
+                <p className="text-sm text-amber-900">
+                  The daily model budget is spent. This verdict is from the decision engine.
+                </p>
               )}
               <p className="text-sm text-stone-600">InstallGate did not run this command.</p>
 

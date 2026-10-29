@@ -14,4 +14,6 @@ Same `GateVerdict` for HTTP, CLI, and MCP.
 uv run --no-sync pytest tests/test_gate.py -v
 ```
 
-Tasks: T11, T12.
+`POST /check` is limited per visitor (`RATE_LIMIT_PER_MINUTE`). The model budget is `DAILY_SPEND_CAP_USD` for the UTC day; past that, the decision engine still answers. Startup writes the three demo snapshots into the cache when they are missing. `GET /health` is the probe.
+
+Tasks: T11, T12, T14.
