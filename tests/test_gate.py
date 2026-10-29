@@ -13,11 +13,10 @@ from contracts.contracts import Verdict
 from fastapi.testclient import TestClient
 from mcp_server.api import app as api_app
 from mcp_server.check import check
-from mcp_server.cli import app as cli_app
+from mcp_server.cli import run as cli_run
 from mcp_server.server import server
 from router.receipt import build_receipt
 from router.tiers import RouteResult
-from typer.testing import CliRunner
 
 SHA = "ab" * 32
 MISSING = "pip install no-such-pkg-xyz"
@@ -88,7 +87,9 @@ def _fake_route(**kwargs: object) -> object:
 
 @respx.mock
 @pytest.mark.usefixtures("_isolated")
-def test_three_entry_points_share_one_block_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_three_entry_points_share_one_block_verdict(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr("mcp_server.check.route", _fake_route)
     respx.get("https://pypi.org/pypi/no-such-pkg-xyz/json").mock(return_value=httpx.Response(404))
     respx.post("https://api.osv.dev/v1/query").mock(
@@ -97,8 +98,8 @@ def test_three_entry_points_share_one_block_verdict(monkeypatch: pytest.MonkeyPa
 
     http = TestClient(api_app).post("/check", json={"command": MISSING})
     assert http.status_code == 200
-    cli = CliRunner().invoke(cli_app, ["check", MISSING])
-    assert cli.exit_code == 0, cli.output
+    assert cli_run(["check", MISSING]) == 2
+    cli_out = capsys.readouterr().out
     mcp = asyncio.run(server.call_tool("check_install", {"command": MISSING}))
     assert mcp.is_error is False
     block = mcp.content[0]
@@ -106,7 +107,7 @@ def test_three_entry_points_share_one_block_verdict(monkeypatch: pytest.MonkeyPa
 
     cores = [
         _core(http.json()),
-        _core(json.loads(cli.output)),
+        _core(json.loads(cli_out)),
         _core(json.loads(text)),
     ]
     assert cores[0] == cores[1] == cores[2]

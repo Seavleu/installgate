@@ -91,22 +91,26 @@ def _show(verdict: GateVerdict) -> None:
         print(text)
 
 
-def main() -> None:
-    """Load `.env` from the current directory, then run. Existing variables win."""
-    load_env_file()
-    argv = sys.argv[1:]
+def run(argv: list[str]) -> int:
+    """Run one check from argv. Returns the process exit code."""
     if not argv or argv[0] in {"-h", "--help", "help"}:
         print(_HELP, end="")
-        raise SystemExit(0 if argv else 2)
+        return 0 if argv else 2
     if argv[0] == "hook":
         print(hook_script(), end="")
-        raise SystemExit(0)
+        return 0
     try:
         command = command_from_argv(argv)
     except ValueError as exc:
         print(f"ig: {exc}", file=sys.stderr)
         print(_HELP, end="", file=sys.stderr)
-        raise SystemExit(2) from exc
+        return 2
     verdict = asyncio.run(check(command))
     _show(verdict)
-    raise SystemExit(exit_code(verdict.final_verdict))
+    return exit_code(verdict.final_verdict)
+
+
+def main() -> None:
+    """Load `.env` from the current directory, then run. Existing variables win."""
+    load_env_file()
+    raise SystemExit(run(sys.argv[1:]))
