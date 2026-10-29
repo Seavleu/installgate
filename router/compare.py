@@ -252,6 +252,7 @@ async def run_one(case: Frozen, system: System, temperature: float | None) -> Ro
             policy_verdict=case.policy,
             risk_score=case.risk,
             evidence_ids=[item.id for item in case.evidence],
+            evidence=case.evidence,
             command=case.command,
             untrusted_text=case.untrusted,
             temperature=temperature,

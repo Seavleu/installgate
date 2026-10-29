@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlparse
@@ -33,6 +34,19 @@ def _allowed(url: str) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in ALLOWED_DOMAINS)
 
 
+def _name_pattern(name: str) -> re.Pattern[str]:
+    """The package name as a whole token. -, _ and . are interchangeable (PEP 503)."""
+    parts = [re.escape(part) for part in re.split(r"[-_.]+", name) if part]
+    body = r"[-_.]".join(parts)
+    return re.compile(rf"(?<![A-Za-z0-9_.\-]){body}(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", re.IGNORECASE)
+
+
+def _mentions(target: TargetRef, title: str, snippet: str) -> bool:
+    # News search matches loosely; a report that never names the package is not evidence about it.
+    pattern = _name_pattern(target.name)
+    return bool(pattern.search(title) or pattern.search(snippet))
+
+
 def _evidence(
     target: TargetRef, number: int, item: dict[str, object], fetched_at: datetime
 ) -> Evidence | None:
@@ -47,6 +61,8 @@ def _evidence(
         "title": title.strip()[:200],
         "snippet": snippet.strip()[:400] if isinstance(snippet, str) else "",
     }
+    if not _mentions(target, observed["title"], observed["snippet"]):
+        return None
     # The page text is data. It cannot choose severity. Untrusted evidence is always soft.
     return Evidence(
         id=f"EV-{number}",

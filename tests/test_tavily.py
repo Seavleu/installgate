@@ -19,8 +19,47 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "test-key")
 
 
-def _hit(url: str, content: str = "a report") -> dict[str, str]:
-    return {"title": "Compromise report", "url": url, "content": content}
+def _hit(
+    url: str, content: str = "a report", title: str = "requests compromise report"
+) -> dict[str, str]:
+    return {"title": title, "url": url, "content": content}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_reports_that_do_not_name_the_package_are_dropped() -> None:
+    respx.post(SEARCH_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    _hit("https://thehackernews.com/a", "GitLab RCE", title="Critical GitLab flaw"),
+                    _hit("https://thehackernews.com/b", "requestsfoo is fine", title="Other news"),
+                    _hit(
+                        "https://thehackernews.com/c", "a typo of Requests was pulled", title="PyPI"
+                    ),
+                    _hit("https://osv.dev/d", "x", title="python-requests-toolbelt"),
+                ]
+            },
+        )
+    )
+    result = await search(TARGET)
+    assert [item.source_url for item in result.evidence] == ["https://thehackernews.com/c"]
+    assert result.failed_closed is False
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_relevance_accepts_pep503_spellings() -> None:
+    target = TargetRef(ecosystem=Ecosystem.PYPI, name="typing-extensions")
+    respx.post(SEARCH_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [_hit("https://osv.dev/e", "typing_extensions 4.9 was hijacked")]},
+        )
+    )
+    result = await search(target)
+    assert len(result.evidence) == 1
 
 
 @respx.mock

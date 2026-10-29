@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from contracts.contracts import (
+    Evidence,
     ExplanationSentence,
     ModelTier,
     RouteCall,
@@ -105,6 +106,20 @@ def _extract_messages(body: str) -> list[dict[str, str]]:
     ]
 
 
+def describe(evidence: list[Evidence]) -> str:
+    """One line per evidence item: id, kind, severity, trust, source, observed facts."""
+    lines = []
+    for item in evidence:
+        facts = "; ".join(
+            f"{key}: {value}" for key, value in item.observed.items() if value not in (None, "")
+        )
+        lines.append(
+            f"{item.id} | {item.kind.value} | {item.severity} | {item.trust} | {item.source}"
+            f" | {facts[:300]}"
+        )
+    return "\n".join(lines)
+
+
 def _keep_sentences(
     sentences: list[_Sentence], evidence_ids: set[str]
 ) -> tuple[ExplanationSentence, ...]:
@@ -153,6 +168,7 @@ async def route(
     risk_score: float,
     evidence_ids: list[str],
     command: str,
+    evidence: list[Evidence] | None = None,
     untrusted_text: str = "",
     deterministic_only_ms: int = 0,
     tavily_calls: int = 0,
@@ -225,6 +241,7 @@ async def route(
         explain_body = (
             f"command: {command}\npolicy_verdict: {policy_verdict.value}\n"
             f"risk_score: {risk_score}\nevidence_ids: {', '.join(evidence_ids)}\n"
+            f"evidence:\n{describe(evidence or [])}\n"
             f"untrusted:\n{untrusted_text}"
         )
         explained, super_meta = await complete_structured(

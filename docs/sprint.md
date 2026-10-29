@@ -30,16 +30,25 @@ Head: `8ff140d`, merge of [#40](https://github.com/Seavleu/installgate/pull/40).
 
 | Branch | Owner | Commits ahead of `main` |
 | --- | --- | --- |
-| `T16-integrate` | Jenny | T17 Nemotron / Nebius README section (`7d4193f`), T14 hosting: spend cap, rate limit, warm samples, `/health` (`9cef643`), T17 README rewrite (`b361063`), T16 `.env` for the CLI and `python -m mcp_server.server` (`09f17f3`) |
+| `T16-integrate` | Jenny | T17 Nemotron / Nebius README section (`7d4193f`), T14 hosting: spend cap, rate limit, warm samples, `/health` (`9cef643`), T17 README rewrite (`b361063`), T16 `.env` for the CLI and `python -m mcp_server.server` (`09f17f3`), API `.env` note (`f4ab4f5`), live model comparison (`0fc3924`), explain prompt fix (`c092aa7`), this status file (`a5927ed`) |
 | `T04-engine-core` | Kate | Follow-up engine and eval fixes after #26. Kate to merge or close. |
 | `T14-hosting` | Jenny | Superseded by `T16-integrate`. Close after that merges. |
 
 ## In the working tree on `T16-integrate`, not committed
 
-- Live model comparison: `router/compare.py`, `tests/test_compare.py`, `eval/results-models.md`. `route()` takes an optional temperature and reports `dropped_sentences`.
-- `router/prompts/explain.txt` asks for the `EV-n` id inside each sentence.
-- T15 recorded as blocked in `remediate/README.md`.
-- This status file.
+Production hardening, 29 Oct. Verified with `docker compose up -d --build` on this Mac (Docker Desktop): three containers, api and ui healthy, checks through Caddy on `http://localhost`.
+
+- Rate limit keys on the rightmost `X-Forwarded-For` entry. 32 requests with spoofed headers: the 31st and later got 429.
+- Limiter drops idle visitors and holds at most 10,000 keys.
+- `spend.json` is written atomically. An unreadable ledger counts as the cap spent.
+- The API configures `installgate.*` logging from `LOG_LEVEL`: one JSON line per event on stderr.
+- `Caddyfile` and a `caddy` service: the only public entry, HTTPS when `SITE_ADDRESS` is a domain. The API port is bound to `127.0.0.1` (`API_PORT`, default 8000).
+- Health checks in both Dockerfiles; the UI waits for a healthy API, Caddy for a healthy UI. Both containers run as non-root.
+- `.dockerignore` (keeps `.env` and host `node_modules` out of the build). `ui/package.json` pins `pnpm@12.4.2`; `ui/pnpm-workspace.yaml` skips the `unrs-resolver` build script, which failed the container install.
+- CI: the UI job takes its pnpm version from `ui/package.json`; a new `docker` job builds the compose images.
+- README: Docker and Deploy sections, rollback and spend kill switch.
+
+Also uncommitted, from a separate session: `POST /check/stream`, MCP over HTTP at `/mcp` and `/api/mcp`, the terminal UI, `ui/src/app/mockup/`.
 
 ## Not done
 
@@ -47,12 +56,16 @@ Head: `8ff140d`, merge of [#40](https://github.com/Seavleu/installgate/pull/40).
 | --- | --- | --- |
 | T15 | Jenny | Cut. Stretch goal: network-off sandbox import. `remediate/sandbox.py` stays a stub. Investigated 29 Oct: Nebius Sandboxes (`contree-sdk`) document no egress-off setting, so "egress was denied" cannot be guaranteed. Blocked until Nebius confirms an egress control and Kate agrees to the exception to rule 1. |
 | T18 | Both, Jenny edits | Next. Demo video. Script in `docs/demo-script.md`. |
-| T19 | Both | Fresh clone of `main` after `T16-integrate` merges. `docker compose up` was not run on this machine (no Docker). |
+| T19 | Both | Fresh clone of `main` after `T16-integrate` merges, on the server. The compose stack was built and checked locally on 29 Oct. |
 | T20 | Both | Devpost submission. |
 
 ## Known gaps
 
-- Fixed 29 Oct (uncommitted): explanations were mostly empty because `validator/citations.py` requires the `EV-n` id inside the sentence text and `explain.txt` did not ask for it. The prompt now does. Nemotron explains 21 of 21 comparison cases. The validator checks that a cited id exists, not that it supports the sentence.
+- Fixed 29 Oct: explanations were mostly empty because `validator/citations.py` requires the `EV-n` id inside the sentence text and `explain.txt` did not ask for it. The prompt now does.
+- Fixed 30 Oct (uncommitted): the explain call saw only evidence ids, never what they record, so sentences were "due to EV-1, EV-2". `route()` now passes one fact line per evidence item. Live `pip install numpy`: "The latest release of numpy, version 2.5.4, was uploaded 18 days ago [EV-1]."
+- Fixed 30 Oct (uncommitted): Tavily news search returned articles that never named the package (OpenAI, GitLab, PHP for `numpy`). Each became soft evidence, pushed risk to 0.95, and triggered Ultra. Hits must now name the package. Live `numpy`: risk 0.25, no Ultra, model cost $0.00035 instead of $0.00202.
+- The validator checks that a cited id exists, not that it supports the sentence.
+- An unpinned package whose latest release is under 30 days old gets REVIEW with no substitute. Pinning the previous release older than 30 days would be a closed-set candidate; not built.
 - Ultra never runs on the benchmark: every REVIEW case has risk 0.25.
 - `eval/runner.py` is Stage 1 only. It does not call `check()` or `route()`. `LIVE_TESTS=1` gates only `router.compare`.
 - The benchmark is 26% ALLOW (39 of 150), so the "≥ 70% zero model calls" target is not measured by it.

@@ -1,8 +1,9 @@
 services:
   api:
     build: .
+    # Local tools (CLI over HTTP, curl) only. The public entry point is caddy.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     env_file:
       - .env
     volumes:
@@ -10,17 +11,37 @@ services:
     environment:
       CACHE_PATH: /app/.cache/installgate.sqlite
       RATE_LIMIT_TRUST_PROXY: "true"
+    restart: unless-stopped
 
   ui:
     build:
       context: .
       dockerfile: ui/Dockerfile
-    ports:
-      - "3000:3000"
     environment:
       API_URL: http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      ui:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   cache:
+  caddy_data:
+  caddy_config:

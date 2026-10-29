@@ -31,11 +31,15 @@ Does not edit `contracts/`. T03 is still open.
 
 ## T08 (this task)
 
-`search` in `tavily.py`. The query is the package name. Results come from allowlisted security domains, last 30 days. Each hit is `trust="retrieved_untrusted"` and `severity="soft"`. A page that says "hard" cannot change that. An off-list URL is dropped. A missing key or an HTTP error returns no evidence and `failed_closed=True`.
+`search` in `tavily.py`. The query is the package name. Results come from allowlisted security domains, last 30 days. Each hit is `trust="retrieved_untrusted"` and `severity="soft"`. A page that says "hard" cannot change that. An off-list URL is dropped. A hit whose title and snippet never name the package (as a whole word; `-`, `_`, `.` interchangeable) is dropped: news search matches loosely, and an unrelated article would otherwise add soft evidence and raise the risk score. A missing key or an HTTP error returns no evidence and `failed_closed=True`.
 
 ```bash
 uv run --no-sync pytest tests/test_tavily.py -v
 ```
+
+## What the explain call sees
+
+The command, the policy verdict, the risk score, and one line per evidence item: id, kind, severity, trust, source, and the observed facts (for example `age_days: 18`). Nano's extract call sees only the command. Everything sits in the data block, which the prompt marks as untrusted data. Without the facts the model can only write "due to EV-1, EV-2".
 
 ## Model comparison
 

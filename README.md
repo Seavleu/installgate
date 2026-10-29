@@ -74,7 +74,7 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. `installgate check` and `python -m router.smoke` read `.env` from the current directory. A variable already set in the environment wins. The API process does not read that file, so export it before uvicorn, or use Compose, which loads `.env` for the API service:
+Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. `ig` and `python -m router.smoke` read `.env` from the current directory. A variable already set in the environment wins. The API process does not read that file, so export it before uvicorn, or use Compose, which loads `.env` for the API service:
 
 ```bash
 set -a && source .env && set +a
@@ -87,14 +87,27 @@ A clean allow does not need the model key. A review or a block does, if you want
 
 ### Command line
 
+The command is `ig` (`installgate` still works). Type the install the way you would type it.
+
 ```bash
-uv run installgate check "pip install requests"
+ig pip install reqeusts
+ig reqeusts                 # same as pip install reqeusts
+ig npm install lodash
 ```
 
-A terminal shows one summary line, then the verdict as indented JSON. A pipe stays a single JSON document, so `jq` still works:
+To keep typing `pip install …` and still get a check, once per shell:
 
 ```bash
-uv run installgate check "pip install requests" | jq .final_verdict
+eval "$(ig hook)"
+pip install reqeusts                 # checked first; the real pip runs only on ALLOW
+```
+
+InstallGate never runs the install itself. The hook is a shell function: on ALLOW it calls your `pip`, on REVIEW or BLOCK it stops.
+
+Exit codes: `0` ALLOW, `1` REVIEW, `2` BLOCK. A pipe stays one JSON document:
+
+```bash
+ig pip install requests | jq .final_verdict
 ```
 
 ### HTTP
@@ -145,10 +158,32 @@ A client such as Cursor registers that command and then calls `check_install` be
 ### Docker
 
 ```bash
-docker compose up
+cp .env.example .env    # fill in the keys
+docker compose up -d --build
 ```
 
-The page is on port 3000 and the API is on port 8000. The page container calls the API at `http://api:8000`. No login.
+Three containers. `caddy` is the only public entry: the page is on [http://localhost](http://localhost) (port 80). It forwards to `ui`, which forwards `/api/check`, `/api/check/stream`, and `/api/mcp` to `api` at `http://api:8000`. The API is published on `127.0.0.1:8000` only (`API_PORT` changes the host port), for local tools. No login.
+
+Both app containers run as non-root users and have a health check on `/health` (API) and `/` (page). The page waits for a healthy API; Caddy waits for a healthy page. `docker compose ps` shows the state.
+
+### Deploy
+
+One Linux VM with Docker and the Compose plugin is enough. On the server:
+
+```bash
+git clone https://github.com/Seavleu/installgate.git && cd installgate
+git checkout <tag>                      # the tag you demo from
+cp .env.example .env && chmod 600 .env  # keys, SITE_ADDRESS
+docker compose up -d --build
+docker compose ps                       # api, ui healthy; caddy running
+curl -fsS https://<your-domain>/        # the page
+```
+
+Set `SITE_ADDRESS` in `.env` to your domain, and point the domain's DNS A record at the server before starting. Caddy then gets an HTTPS certificate on its own; ports 80 and 443 must be open. Leave `SITE_ADDRESS=:80` to serve plain HTTP on the server's IP.
+
+The rate limit keys on the rightmost `X-Forwarded-For` entry, which Caddy writes. Keep Caddy as the only public port; the API port is bound to localhost.
+
+Roll back by checking out the previous tag and running `docker compose up -d --build` again. The cache volume can be deleted at any time (`docker compose down -v`); it refills from the registries. To stop model spend at once, set `DAILY_SPEND_CAP_USD=0` and run `docker compose up -d`: checks keep returning the policy verdict.
 
 On startup the API writes three demo snapshots into the cache when those keys are empty: `requests`, `reqeusts`, and `no-such-pkg-xyz`. The `requests` snapshot was read from the PyPI JSON API on 2026-10-29 (version 2.34.2). A later live fetch replaces a snapshot after its cache TTL.
 
@@ -158,16 +193,18 @@ On startup the API writes three demo snapshots into the cache when those keys ar
 | --- | --- | --- |
 | `NEBIUS_API_KEY` | empty | Token Factory credential. Required for a model call. |
 | `NEBIUS_BASE_URL` | `https://api.tokenfactory.nebius.com/v1/` | OpenAI-compatible base URL. |
-| `TAVILY_API_KEY` | empty | Web evidence. Missing key: no web evidence, check continues. |
+| `TAVILY_API_KEY` | empty | Web evidence. Missing key: no web evidence, and a review or block is marked `failed_closed`. The verdict is unchanged. |
 | `MODEL_NANO` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | Override. Otherwise resolved from `GET /v1/models`. |
 | `MODEL_SUPER` | `nvidia/nemotron-3-super-120b-a12b` | Override. |
 | `MODEL_ULTRA` | `nvidia/Nemotron-3-Ultra-550b-a55b` | Override. |
 | `ULTRA_ENABLED` | `true` | Ultra runs only for policy REVIEW at risk ≥ 0.6. |
 | `DAILY_SPEND_CAP_USD` | `5` | Model budget for the UTC day. After it is spent, checks still return the policy verdict and skip the model. |
 | `RATE_LIMIT_PER_MINUTE` | `30` | `POST /check` calls per visitor. `0` disables the limit. |
-| `RATE_LIMIT_TRUST_PROXY` | `false` | Use `X-Forwarded-For` when the page is the public entry. Compose sets this on the API. |
+| `RATE_LIMIT_TRUST_PROXY` | `false` | Key the limit on the rightmost `X-Forwarded-For` entry. Compose sets this on the API, behind Caddy. |
 | `CACHE_PATH` | `./.cache/installgate.sqlite` | SQLite cache of registry summaries. |
-| `LOG_LEVEL` | `INFO` | Logs are structured JSON. Keys and prompts are not logged. |
+| `LOG_LEVEL` | `INFO` | JSON lines on stderr from the API. Keys and prompts are not logged. |
+| `SITE_ADDRESS` | `:80` | Compose only. A domain name turns on automatic HTTPS in Caddy. |
+| `API_PORT` | `8000` | Compose only. Host port for the API, bound to `127.0.0.1`. |
 
 ## How we use NVIDIA Nemotron and Nebius
 

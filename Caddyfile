@@ -1,0 +1,8 @@
+# SITE_ADDRESS=:80 serves plain HTTP (local). A domain name gets an automatic HTTPS certificate.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy ui:3000 {
+		# /api/check/stream sends one line per pipeline stage; do not buffer it.
+		flush_interval -1
+	}
+}
