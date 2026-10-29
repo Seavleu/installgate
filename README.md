@@ -1,97 +1,245 @@
 # InstallGate
 
-Pre-install check for coding agents. Reads metadata only. Never installs. Never runs the proposed command.
+InstallGate is a pre-install trust gate for coding agents. You give it one `pip install` or `npm install` command. It reads registry metadata, applies a fixed policy, and returns one verdict: **ALLOW**, **REVIEW**, or **BLOCK**.
 
-## Who does what
+It does not install the package. It does not run the command it proposes. A block or a review can include a pinned substitute as a command diff. A person, or the calling agent, confirms that command before it is used anywhere else.
 
-| Person | Folders | Do |
+Built for the Nebius x NVIDIA hackathon. The explanation step uses NVIDIA Nemotron on Nebius Token Factory. The decision itself does not.
+
+## What you get back
+
+Every entry point returns the same `GateVerdict`.
+
+| Field | Meaning |
+| --- | --- |
+| `final_verdict` | `ALLOW`, `REVIEW`, or `BLOCK`. The stricter of the policy and the model. |
+| `evidence` | Facts gathered for this check, each with an `EV-n` id. |
+| `explanation` | Sentences that cite those ids. A sentence with no valid id is dropped. |
+| `remediation` | A pinned substitute, when one survives a second check. |
+| `next_action` | `proceed`, `use_substitute`, `ask_human`, or `abort`. |
+| `receipt` | Tokens, cost, and the cost if every model call had been Ultra. |
+
+Three commands are enough to see the range:
+
+```text
+pip install requests          ALLOW, no model call
+pip install reqeusts          the name is not on PyPI; the diff proposes pinned requests
+pip install no-such-pkg-xyz   BLOCK, no substitute
+```
+
+## How a check works
+
+```text
+parse one pip or npm install command
+  → fetch registry metadata and query OSV
+  → run the deterministic checks
+  → apply policy P1–P10, strictest match wins
+  → ALLOW with a pin and no findings: stop, no model call
+  → otherwise: optional web search, then Nemotron, then citation checks
+  → if the verdict is not ALLOW: propose a pinned substitute and re-check it
+  → return the verdict and stop
+```
+
+The same checks cover Hugging Face repos and Dockerfile `FROM` lines. Those paths are in the engine and in the benchmark. The command, the HTTP API, and the MCP tool accept pip and npm.
+
+A registry error, a model error, or a missing key fails closed to **REVIEW** and keeps whatever evidence was already collected. A **BLOCK** that already has hard evidence stays a block.
+
+The model may raise ALLOW to REVIEW. BLOCK comes only from the policy, and only from hard deterministic evidence. Web pages are quoted to the model as data. They are stored as untrusted, soft evidence.
+
+## Policy
+
+Every rule runs. The strictest match wins. Policy version `2026-10-28.1`.
+
+| Rule | Condition | Verdict |
 | --- | --- | --- |
-| Kate | `engine/`, `validator/`, `eval/` | parsers, checks, policy, citations, benchmark |
-| Jenny | `router/`, `remediate/`, `mcp_server/`, `ui/` | Nemotron, substitutes, API/CLI/MCP, UI |
-| Both | `contracts/`, `docs/` | contracts freeze after day 1 — both must review changes |
+| P1 | Package does not exist | BLOCK |
+| P2 | OSV returns a `MAL-` record | BLOCK |
+| P3 | Dockerfile base tag is below the patched floor | BLOCK |
+| P4 | Typosquat of a popular name, first upload under 7 days | BLOCK |
+| P5 | Typosquat alone | REVIEW |
+| P6 | First upload or latest release under 30 days | REVIEW |
+| P7 | Hugging Face repo with pickle weights and no safetensors file | REVIEW |
+| P8 | Maintainer change on a recent release | REVIEW |
+| P9 | No findings, and the artefact is pinned | ALLOW |
+| P10 | A check could not run | REVIEW |
 
-Each folder has a short README. Empty files are yours to fill. Do not implement the other person's folders.
+An allow requires a pin: version plus sha256, or a Hugging Face revision. An unpinned package with no findings is a review. Release age alone never blocks. The npm typosquat check is off, so an npm install that would have needed it is a review under P10.
 
-Full rules: `AGENTS.md`.
+## Quick start
 
-## Setup
+Requirements: Python 3.11, [uv](https://docs.astral.sh/uv/), and Node 22 with pnpm for the page.
 
 ```bash
 uv sync --extra dev
 cp .env.example .env
-cd ui && pnpm install
 ```
 
-Windows ARM: `tavily-python` needs a Rust build. Skip it for now (T08). If `uv run` tries to rebuild the env, use:
-
-```powershell
-uv run --no-sync pytest tests/test_token_factory.py
-```
-
-Keys go in `.env` only. Never commit secrets.
-
-GitHub board (once, after the repo exists):
+Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. The CLI and the API read the process environment, so load it before a live check:
 
 ```bash
-gh auth login
-gh auth refresh -s project
-PROJECT_NUMBER=10 ./setup-github.sh Seavleu/installgate
+set -a && source .env && set +a
 ```
 
-Do not re-run the issue step — it duplicates T01–T20. Then finish the 4 browser steps the script prints.
+A clean allow does not need the model key. A review or a block does, if you want an explanation.
 
-When both sides are wired:
+## Use it
+
+### Command line
 
 ```bash
-docker compose up   # API :8000  UI :3000
+uv run installgate check "pip install requests"
 ```
+
+A terminal shows one summary line, then the verdict as indented JSON. A pipe stays a single JSON document, so `jq` still works:
+
+```bash
+uv run installgate check "pip install requests" | jq .final_verdict
+```
+
+### HTTP
+
+```bash
+uv run uvicorn mcp_server.api:app --port 8000
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/check \
+  -H 'Content-Type: application/json' \
+  -d '{"command":"pip install requests"}'
+```
+
+`GET /health` returns `{"ok": true}`. Interactive docs are at `http://127.0.0.1:8000/docs`. There is no account.
+
+### Page
+
+The page shows the same command twice: the line an agent would run, and the verdict beside it.
+
+```bash
+cd ui && pnpm install && pnpm dev
+```
+
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The page calls `/api/check`, which the Next.js server forwards to `API_URL` (default `http://127.0.0.1:8000`). Start the API first.
+
+### MCP
+
+The tool name is `check_install`. It takes one `command` string and returns the same JSON. It speaks stdio:
+
+```bash
+uv run python -c "from mcp_server.server import main; main()"
+```
+
+### Docker
+
+```bash
+docker compose up
+```
+
+The page is on port 3000 and the API is on port 8000. The page container calls the API at `http://api:8000`. No login.
+
+On startup the API writes three demo snapshots into the cache when those keys are empty: `requests`, `reqeusts`, and `no-such-pkg-xyz`. The `requests` snapshot was read from the PyPI JSON API on 2026-10-29 (version 2.34.2). A later live fetch replaces a snapshot after its cache TTL.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NEBIUS_API_KEY` | empty | Token Factory credential. Required for a model call. |
+| `NEBIUS_BASE_URL` | `https://api.tokenfactory.nebius.com/v1/` | OpenAI-compatible base URL. |
+| `TAVILY_API_KEY` | empty | Web evidence. Missing key: no web evidence, check continues. |
+| `MODEL_NANO` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | Override. Otherwise resolved from `GET /v1/models`. |
+| `MODEL_SUPER` | `nvidia/nemotron-3-super-120b-a12b` | Override. |
+| `MODEL_ULTRA` | `nvidia/Nemotron-3-Ultra-550b-a55b` | Override. |
+| `ULTRA_ENABLED` | `true` | Ultra runs only for policy REVIEW at risk ≥ 0.6. |
+| `DAILY_SPEND_CAP_USD` | `5` | Model budget for the UTC day. After it is spent, checks still return the policy verdict and skip the model. |
+| `RATE_LIMIT_PER_MINUTE` | `30` | `POST /check` calls per visitor. `0` disables the limit. |
+| `RATE_LIMIT_TRUST_PROXY` | `false` | Use `X-Forwarded-For` when the page is the public entry. Compose sets this on the API. |
+| `CACHE_PATH` | `./.cache/installgate.sqlite` | SQLite cache of registry summaries. |
+| `LOG_LEVEL` | `INFO` | Logs are structured JSON. Keys and prompts are not logged. |
+
+## How we use NVIDIA Nemotron and Nebius
+
+Nemotron runs on Nebius Token Factory through the OpenAI SDK. Model ids come from `GET /v1/models` on the first call that needs them. A tier missing from the catalog is turned off for that process.
+
+| Tier | Role |
+| --- | --- |
+| Nano | Reads the command. It may add a target only when that exact name already appears in the input. Thinking is disabled for this call. |
+| Super | Writes the explanation. |
+| Ultra | Runs only when the policy verdict is REVIEW, the risk score is at least 0.6, and `ULTRA_ENABLED` is true. |
+
+Calls use JSON schema output, with one retry. Nemotron sometimes puts the answer in `reasoning_content` and leaves `content` empty; both are read.
+
+Each call is priced on the receipt, and priced again as if it had been Ultra. The table is `2026-10-25 token-factory-catalog`, USD per 1M tokens, input / output:
+
+| Tier | Input | Output |
+| --- | --- | --- |
+| Nano | 0.06 | 0.24 |
+| Super | 0.30 | 0.90 |
+| Ultra | 1 | 3 |
+
+A live ping of Nano and Super, which prints model ids, tokens, and latency:
+
+```bash
+uv run python -m router.smoke
+```
+
+Tavily is not a model. It searches `osv.dev`, `nvd.nist.gov`, `cisa.gov`, `github.blog`, and `thehackernews.com` for the last 30 days. Those hits cannot be hard evidence.
+
+## Substitutes
+
+Substitutes come from a closed list: a known alias, a near neighbour in the popularity snapshot, a Hugging Face safetensors sibling, or a patched Dockerfile tag. The model is not asked to invent a package name. The alias shipped today is `reqeusts` → `requests`. It is chosen by rule.
+
+A candidate is shown only after the decision engine checks it again and the re-check is an allow. The diff is the original command beside the pinned requirement (`name==version` and a sha256). InstallGate stops there.
+
+The note on a substitute is import compatibility only. Behavioural equivalence is not guaranteed. A network-off sandbox import of that pin is a stretch goal and is not in this build.
 
 ## Benchmark
 
-150 labelled cases, metadata only: nothing is installed, imported or executed.
-
-### How to run
+150 labelled cases. Metadata only: nothing is installed, imported, or executed. The run below is deterministic. It does not call Nemotron, so it has no model-cost figure and no share-of-checks-with-zero-model-calls figure. Latency is Stage 1 alone.
 
 ```bash
 uv run pytest -q
 uv run python -m eval.runner   # offline; rewrites eval/results.md
 ```
 
-The runner never touches the network. The label scripts do, so run them by hand and never in CI. They read metadata only: `eval/fetch_osv_malicious.py`, `eval/fetch_top_pypi.py`, `eval/verify_labels.py`, `eval/add_cases.py` (each has `--dry-run`).
+The runner never touches the network. The label scripts do. Run them by hand, never in CI. Each accepts `--dry-run`:
 
-### Cases and where they come from
+- `eval/fetch_osv_malicious.py`
+- `eval/fetch_top_pypi.py`
+- `eval/verify_labels.py`
+- `eval/add_cases.py`
+
+### Cases
 
 | Class | Cases | Source |
 | --- | --- | --- |
-| benign | 44 | 29 PyPI installs (19 pinned, 10 unpinned) with release dates read from the PyPI JSON API; 5 Hugging Face repos with safetensors weights only (Hugging Face API); 10 Docker base images pinned to a patch-level tag (not a digest) (`eval/make_cases.py`, floors from `engine/runtime_floors.yaml`) |
-| malicious | 50 | OSV `MAL-` records from `ossf/malicious-packages`, pinned to commit `323d867` (OSV advisory metadata only). 24 are packages the registry has since removed, 1 is still published, 25 simulate the registry state before removal |
-| hallucinated | 30 | Names that return 404 on the PyPI JSON API on the day of the run (`eval.verify_labels`) |
-| typosquat | 20 | Near-misses of names in the top-5000 PyPI snapshot (`hugovk/top-pypi-packages`), generated by `eval/make_cases.py` |
-| hf_pickle | 5 | Hugging Face repos with pickle weights and no safetensors file (Hugging Face API) |
+| benign | 44 | 29 PyPI installs (19 pinned, 10 unpinned) with dates from the PyPI JSON API; 5 Hugging Face repos with safetensors only; 10 Docker base images pinned to a patch-level tag |
+| malicious | 50 | OSV `MAL-` records from `ossf/malicious-packages` at commit `323d867`. 24 names have since been removed, 1 is still published, 25 simulate the registry before removal |
+| hallucinated | 30 | Names that returned 404 on the PyPI JSON API on the day of the run |
+| typosquat | 20 | Near-misses of the top-5000 PyPI snapshot (`hugovk/top-pypi-packages`) |
+| hf_pickle | 5 | Hugging Face repos with pickle weights and no safetensors file |
 | floating_tag | 1 | `alpine:3.20`, a base tag with no patch release |
 
 ### Results
 
-Numbers from a run on 2026-10-28 at commit 582c702. Regenerate with `uv run python -m eval.runner`; this README is not updated automatically.
+Recorded on 2026-10-28 at commit `582c702`. Regenerate with `uv run python -m eval.runner`. This file is not updated automatically. The full report, including the confusion matrix, is [`eval/results.md`](eval/results.md).
 
 | Metric | Target | Result |
 | --- | --- | --- |
-| Block recall | >= 95% | 100.0% |
-| False-block rate (benign) | <= 2% | 0.0% |
-| Review rate on benign | no target yet | 11.4% |
+| Block recall | ≥ 95% | 100.0% |
+| False-block rate on benign | ≤ 2% | 0.0% |
+| Review rate on benign | no target | 11.4% |
 | p50 latency | — | 0.02 ms |
 | p95 latency | — | 0.66 ms |
 
 | Class | Deciding rule | Every rule that fired |
 | --- | --- | --- |
-| benign | `P9` ×39, `P6` ×5 | `P9` ×39, `P6` ×5 |
-| malicious | `P2` ×26, `P1` ×24 | `P2` ×26, `P1` ×24, `P5` ×3, `P6` ×2 |
-| hallucinated | `P1` ×30 | `P1` ×30 |
-| typosquat | `P4` ×13, `P5` ×7 | `P5` ×20, `P4` ×13, `P6` ×13 |
-| hf_pickle | `P7` ×5 | `P7` ×5 |
-| floating_tag | `P10` ×1 | `P10` ×1 |
+| benign | P9 ×39, P6 ×5 | P9 ×39, P6 ×5 |
+| malicious | P2 ×26, P1 ×24 | P2 ×26, P1 ×24, P5 ×3, P6 ×2 |
+| hallucinated | P1 ×30 | P1 ×30 |
+| typosquat | P4 ×13, P5 ×7 | P5 ×20, P4 ×13, P6 ×13 |
+| hf_pickle | P7 ×5 | P7 ×5 |
+| floating_tag | P10 ×1 | P10 ×1 |
 
-| Class | Cases | Passed | Failed | Label source |
+| Class | Cases | Passed | Failed | Labels |
 | --- | --- | --- | --- | --- |
 | benign | 44 | 39 | 5 | 10 unverified |
 | malicious | 50 | 50 | 0 | 25 unverified |
@@ -100,20 +248,70 @@ Numbers from a run on 2026-10-28 at commit 582c702. Regenerate with `uv run pyth
 | hf_pickle | 5 | 5 | 0 | verified |
 | floating_tag | 1 | 1 | 0 | 1 unverified |
 
-Numbers come from `uv run python -m eval.runner`; the full report, including the confusion matrix, is `eval/results.md`. "Deciding rule" is the strictest rule that matched.
+"Deciding rule" is the strictest rule that matched. "Passed" means the verdict matched the label.
 
-### Why 5 unpinned benign installs go to REVIEW
+Five benign cases are reviews, and that is the policy working. `fastapi`, `numpy`, `django`, `pydantic`, and `sqlalchemy` were unpinned, so they resolve to the latest release, and that release was under 30 days old. P6 sends a release that young to review. The 30-day line stays: a fresh release is where a compromised version shows up (litellm 1.82.7). Loosening it to clear these five would miss that case. The false-block rate on this run is 0%.
 
-`fastapi`, `numpy`, `django`, `pydantic` and `sqlalchemy` were installed without a version, so they resolve to the latest release, and in each case that release was less than 30 days old. Rule P6 sends a release that young to REVIEW. That is intended. The 30-day threshold stays: a fresh release is exactly where a compromised version shows up (litellm 1.82.7), and loosening it to make these five pass would stop catching that case. False-block rate stays at 0%.
+### Limits of this run
 
-### Known limits
+- Stage 1 only. No model cost, and no measurement of how often a live check skips the model.
+- 25 of the 50 malicious cases simulate the registry before the package was removed. Recall there shows that the OSV path is wired, not that those names were still installable on the day of the run.
+- npm is not in the benchmark. The npm typosquat check is off, and those installs go to review (`test_npm_lodash_is_review_with_one_cited_evidence` in `tests/test_policy.py`).
+- A floating base tag such as `python:3.12-slim` is a review by design.
+- Only the PHP floors are verified against a vendor advisory (2026-10-21). Other image floors in `engine/runtime_floors.yaml` are placeholders.
 
-- Deterministic-only run: Stage 1 is the whole pipeline here, so there are no model-cost or zero-LLM-share numbers yet. The latency is Stage 1 alone.
-- 25 of the 50 malicious cases simulate the pre-removal registry state. Their recall says the OSV path (P2) is wired up, not that it caught anything in the wild.
-- npm is cut from the benchmark. The npm typosquat check is switched off and npm installs go to REVIEW (covered by `test_npm_lodash_is_review_with_one_cited_evidence` in `tests/test_policy.py`).
-- Floating base tags (e.g. `python:3.12-slim`) go to REVIEW by design.
-- Only the PHP floors are vendor-verified. The other images' floors are unverified placeholders.
+## Developer feedback
+
+What we would tell the next person who puts a model behind a gate that already has a verdict:
+
+- Run the policy first. Give the model no way to type a package name. Our substitute list is closed, and the one alias is accepted only after a second deterministic check.
+- Keep a sentence only when it cites an evidence id this check actually produced. On a missing package the model still ran, and the explanation stayed empty, because nothing it wrote cited `EV-1`.
+- Skip the model on a clean allow. That is the common path, and it is why a pinned `requests` install comes back with a $0 receipt.
+- Hand registry text and web pages to the model as quoted data. A page that urges a block stays soft evidence.
+
+## Responsible use
+
+InstallGate reads registry metadata. It does not install a package, import it, or execute the command it prints. A block requires hard deterministic evidence from the policy. Confirm a substitute before running it. The substitute is pinned to a version and a sha256.
+
+The public page has no account. `POST /check` is limited per visitor per minute, and `DAILY_SPEND_CAP_USD` caps model spend for the UTC day. Past the cap, the policy verdict is what you get.
+
+## Development
+
+| Area | Path |
+| --- | --- |
+| Contracts | `contracts/` |
+| Parse, fetch, policy | `engine/` |
+| Citations, lattice, fail-closed | `validator/` |
+| Nemotron, Tavily, receipts | `router/` |
+| Substitutes and diffs | `remediate/` |
+| HTTP, CLI, MCP | `mcp_server/` |
+| Page | `ui/` |
+| Benchmark | `eval/` |
+
+`AGENTS.md` is the rule set for anyone changing the code. `docs/architecture.md` is the pipeline diagram. Each folder has a short README and the test command for that area.
+
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+cd ui && pnpm lint && pnpm build
+```
+
+Unit tests mock HTTP with `respx`. They do not call PyPI, OSV, Tavily, or Token Factory. Live calls belong in `router.smoke` and in the label scripts, and only when you mean to make them.
+
+On Windows ARM, `tavily-python` needs a Rust build. Leave it uninstalled and run `uv run --no-sync` so uv does not try to rebuild the environment.
+
+The GitHub board is created once:
+
+```bash
+gh auth login
+gh auth refresh -s project
+PROJECT_NUMBER=10 ./setup-github.sh Seavleu/installgate
+```
+
+Running the issue step again duplicates T01–T20.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)
