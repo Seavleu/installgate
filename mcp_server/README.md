@@ -4,9 +4,8 @@ Same `GateVerdict` for HTTP, CLI, and MCP.
 
 | File | Build this |
 | --- | --- |
-| `api.py` | FastAPI `POST /check` |
-| `cli.py` | `installgate check "pip install requests"` |
-| `cli.py` | `installgate check`. Reads `.env` in the current directory. |
+| `api.py` | FastAPI `POST /check`. Does not read `.env`; keys come from the process environment (`env_file` in `docker-compose.yml`, or `export` before `uvicorn`). |
+| `cli.py` | `installgate check "pip install requests"`. Reads `.env` in the current directory. |
 | `server.py` | MCP tool `check_install`, `python -m mcp_server.server` |
 
 `check` in `check.py` is the only function that builds a `GateVerdict`. `POST /check`, `installgate check`, and the MCP tool `check_install` call it and stop. They do not run the command.
