@@ -9,15 +9,16 @@ services:
       - cache:/app/.cache
     environment:
       CACHE_PATH: /app/.cache/installgate.sqlite
+      RATE_LIMIT_TRUST_PROXY: "true"
 
   ui:
     build:
-      context: ./ui
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ui/Dockerfile
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL: http://api:8000
     depends_on:
       - api
 
