@@ -175,7 +175,7 @@ substitute     remediate/                   closed set, pin, diff. Engine re-che
 
 `mcp_server/check.py` `check()` is the orchestrator and the only function that builds a `GateVerdict`. Every stage above is implemented except `remediate/sandbox.py` (T15, cut). Edit the module that already owns the job. Do not add a second module for the same job.
 
-Who is doing what, and what is already done: `docs/sprint.md`.
+Who is doing what: the table above. Task list: `docs/prd-ssd.md`, section 13.
 
 ## 7. Policy rules (`engine/policy.yaml`)
 

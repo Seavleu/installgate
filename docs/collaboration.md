@@ -53,7 +53,7 @@ A pass is `7 passed`. These tests mock HTTP. They do not read `.env` and they do
 
 ### 3. Commit the task files
 
-Leave out `.env`, `AGENTS.md`, and `docs/sprint.md` unless that task changed them.
+Leave out `.env` and `AGENTS.md` unless that task changed them.
 
 ```bash
 git add router/README.md router/prompts/explain.txt router/prompts/extract.txt \

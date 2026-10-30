@@ -76,7 +76,7 @@ pip install reqeusts
 
 From this repo instead of PyPI: `uv tool install --force .`
 
-Demo talk track: [`docs/demo-script.md`](docs/demo-script.md). Agent playbook: [`docs/playbook.md`](docs/playbook.md).
+Agent playbook: [`docs/playbook.md`](docs/playbook.md).
 
 ## What you get back
 
