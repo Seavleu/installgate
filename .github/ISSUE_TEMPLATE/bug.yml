@@ -1,0 +1,30 @@
+name: Bug
+description: Something does not work as documented
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: `ig --version`
+      placeholder: installgate 0.1.3
+  - type: textarea
+    id: repro
+    attributes:
+      label: Command to reproduce
+      placeholder: ig --no pip install requests
+      render: bash
+    validations:
+      required: true

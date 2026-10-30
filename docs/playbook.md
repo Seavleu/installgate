@@ -83,13 +83,13 @@ No login. One contract for HTTP, MCP, and CLI.
 
 ### Demo host (public, now)
 
-| Use | URL |
-| --- | --- |
-| Page | `https://installgate.installgate-ui.workers.dev` |
-| Check | `POST /api/check` `{"command":"pip install requests"}` |
-| Stream | `POST /api/check/stream` NDJSON stages then the verdict |
-| MCP | `https://installgate.installgate-ui.workers.dev/api/mcp` |
-| Health | `GET /api/health` → `{"ok":true}` |
+| Use    | URL                                                      |
+| ------ | -------------------------------------------------------- |
+| Page   | `https://installgate.installgate-ui.workers.dev`         |
+| Check  | `POST /api/check` `{"command":"pip install requests"}`   |
+| Stream | `POST /api/check/stream` NDJSON stages then the verdict  |
+| MCP    | `https://installgate.installgate-ui.workers.dev/api/mcp` |
+| Health | `GET /api/health` → `{"ok":true}`                        |
 
 Cursor / Claude MCP (remote):
 

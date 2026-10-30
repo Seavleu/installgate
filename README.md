@@ -29,7 +29,12 @@ Python 3.11+. Package: [`installgate` on PyPI](https://pypi.org/project/installg
 ```bash
 uv tool install installgate
 uv tool update-shell          # once; then open a new terminal
-ig --version                  # installgate 0.1.2
+ig --version                  # installgate 0.1.3
+```
+
+```bash
+uv tool install 'installgate[tavily]'   # web evidence
+uv tool install 'installgate[server]'   # HTTP API (FastAPI)
 ```
 
 `pipx install installgate` works if you have pipx. If `ig` already exists on your PATH:
@@ -63,6 +68,9 @@ ig pip install reqeusts       # same, may prompt [Y/n] on ALLOW
 ig reqeusts                   # same as pip install reqeusts
 ig --json --no pip install requests
 ig --help
+ig --version
+eval "$(ig completion zsh)"    # bash|zsh|fish
+installgate-mcp                # MCP stdio
 ```
 
 Exit: `0` ALLOW, `1` REVIEW, `2` BLOCK.

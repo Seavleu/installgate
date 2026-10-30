@@ -1,0 +1,19 @@
+name: Feature
+description: A change to the product, not a delivery-plan task
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Who is blocked today, and what they cannot do
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The smallest change that unblocks them
+    validations:
+      required: true

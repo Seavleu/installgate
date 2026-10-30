@@ -28,6 +28,7 @@ Usage:
   ig --no pip install numpy      # check only
   ig --json pip install numpy
   ig --version
+  ig completion bash|zsh|fish
 
   eval "$(ig hook)"              # `pip install` checks, then real pip on ALLOW
 
@@ -37,6 +38,37 @@ Exit: 0 ALLOW, 1 REVIEW, 2 BLOCK. `installgate` is the same command.
 _INSTALLERS = frozenset(
     {"pip", "pip3", "python", "python3", "uv", "npm", "npx", "pnpm", "yarn", "docker"}
 )
+
+_COMPLETION = {
+    "bash": """\
+_ig() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  local opts="--help --version --no --json -y --yes completion hook pip npm"
+  COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+}
+complete -F _ig ig
+complete -F _ig installgate
+""",
+    "zsh": """\
+#compdef ig installgate
+_arguments \\
+  '--help[show help]' \\
+  '--version[print version]' \\
+  '--no[check only, do not install]' \\
+  '--json[JSON verdict]' \\
+  '-y[run pin without prompt]' \\
+  '1:command:(pip npm completion hook)'
+""",
+    "fish": """\
+complete -c ig -s h -l help -d 'Show help'
+complete -c ig -l version -d 'Print version'
+complete -c ig -l no -d 'Check only, do not install'
+complete -c ig -l json -d 'JSON verdict'
+complete -c ig -s y -l yes -d 'Run pin without prompt'
+complete -c ig -a 'pip npm completion hook'
+complete -c installgate -w ig
+""",
+}
 
 
 def package_version() -> str:
@@ -235,6 +267,14 @@ def run(argv: list[str]) -> int:
         return 0 if argv else 2
     if argv[0] in {"-V", "--version", "version"}:
         print(f"installgate {package_version()}")
+        return 0
+    if argv[0] == "completion":
+        shell = argv[1] if len(argv) > 1 else "bash"
+        text = _COMPLETION.get(shell)
+        if text is None:
+            print(f"ig: unknown shell {shell!r} (bash, zsh, fish)", file=sys.stderr)
+            return 2
+        print(text, end="")
         return 0
     if argv[0] == "hook":
         print(hook_script(), end="")

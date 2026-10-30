@@ -49,6 +49,13 @@ def test_hook_wraps_pip_and_npm() -> None:
     assert "unalias pip" in text
 
 
+def test_completion_prints_a_known_shell() -> None:
+    assert run(["completion", "bash"]) == 0
+    assert run(["completion", "zsh"]) == 0
+    assert run(["completion", "fish"]) == 0
+    assert run(["completion", "cmd"]) == 2
+
+
 def test_version_prints_the_package_and_does_not_check() -> None:
     assert run(["--version"]) == 0
     assert run(["-V"]) == 0

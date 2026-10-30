@@ -26,8 +26,10 @@ uv tool install --force installgate
 ```
 
 ```bash
-ig --version
+ig --version    # installgate 0.1.3
 ```
+
+Extras: `installgate[tavily]` (web evidence), `installgate[server]` (HTTP API). MCP binary: `installgate-mcp`.
 
 ## Use
 
@@ -49,7 +51,7 @@ Optional keys in the environment (or a `.env` in the current directory):
 ## MCP
 
 ```bash
-uvx --from installgate python -m mcp_server.server
+installgate-mcp
 ```
 
 Tool: `check_install`. Argument: `command`.

@@ -3,14 +3,15 @@ FROM python:3.11-slim
 WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY docs/pypi.md ./docs/pypi.md
+COPY man ./man
 COPY contracts ./contracts
 COPY engine ./engine
 COPY validator ./validator
 COPY router ./router
 COPY remediate ./remediate
 COPY mcp_server ./mcp_server
-COPY eval ./eval
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra server
 
 # The cache volume inherits this owner the first time it is mounted.
 RUN useradd --system --uid 10001 --home /app app && mkdir -p /app/.cache && chown app:app /app/.cache
