@@ -81,9 +81,9 @@ def gather_evidence(
 ) -> list[Evidence]:
     """Run every applicable check in a fixed order so EV ids are reproducible.
 
-    A check that could not run (a container tag with no comparable floor, an
-    ecosystem with no typosquat reference set) contributes a soft
-    check_unavailable record rather than silence.
+    A check that could not run (a container tag with no comparable floor)
+    contributes a soft check_unavailable record rather than silence. npm has
+    no typosquat snapshot; that check is skipped, not recorded as a gap.
     """
     now = now or datetime.now(UTC)
     builder = builder or EvidenceBuilder()

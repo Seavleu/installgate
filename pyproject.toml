@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "installgate"
-version = "0.1.0"
-description = "Pre-install trust gate for coding agents"
-readme = "README.md"
+version = "0.1.2"
+description = "Pre-install trust gate for coding agents. Check pip/npm before install; never runs the package."
+readme = "docs/pypi.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [{ name = "InstallGate contributors" }]
@@ -24,6 +24,12 @@ dependencies = [
   "mcp",
   "typer",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Seavleu/installgate"
+Documentation = "https://github.com/Seavleu/installgate#readme"
+Source = "https://github.com/Seavleu/installgate"
+Issues = "https://github.com/Seavleu/installgate/issues"
 
 [project.scripts]
 ig = "mcp_server.cli:main"
@@ -49,8 +55,15 @@ packages = [
   "router",
   "remediate",
   "mcp_server",
-  "eval",
 ]
+# Hatchling ships .py only. Policy, floors, typosquat list, and prompts are data.
+[tool.hatch.build.targets.wheel.force-include]
+"engine/policy.yaml" = "engine/policy.yaml"
+"engine/runtime_floors.yaml" = "engine/runtime_floors.yaml"
+"engine/data/pypi-top5000-2026-10-27.txt" = "engine/data/pypi-top5000-2026-10-27.txt"
+"router/prompts/extract.txt" = "router/prompts/extract.txt"
+"router/prompts/explain.txt" = "router/prompts/explain.txt"
+"router/prompts/rank_substitute.txt" = "router/prompts/rank_substitute.txt"
 
 [tool.ruff]
 line-length = 100

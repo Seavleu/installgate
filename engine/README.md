@@ -29,7 +29,7 @@ a clean result, and being soft it can never produce a BLOCK (FR-09).
 | `floating_tag` | `latest`, `bookworm`, or `8.3` / `8.3-apache` with no patch release |
 | `digest_only` | A Dockerfile reference with no tag |
 | `image_not_in_table` | No floors recorded for this image |
-| `typosquat_unsupported_ecosystem` | No vetted popular-name set (npm) |
+| `typosquat_unsupported_ecosystem` | A registry listed for typosquat has no snapshot. npm is not listed; exists/pin still ALLOW. |
 
 Tasks: T03, T04, T05, T06, T22. Tests first. Mock HTTP with respx. No live network in unit tests.
 

@@ -35,14 +35,12 @@ MIN_SNAPSHOT_NAMES: dict[Ecosystem, int | None] = {
     # and date). The bar sits just below it so a truncated or half-written file
     # fails the check instead of quietly shrinking its coverage.
     Ecosystem.PYPI: 4000,
-    # Cut from this milestone: no vetted popular-name source for npm, so the
-    # check is off rather than running against 226 names written from memory.
-    Ecosystem.NPM: None,
 }
 
 # Ecosystems the typosquat check applies to at all. Container images and model
 # repositories are namespaced, so a flat popular-name list is the wrong tool.
-TYPOSQUAT_ECOSYSTEMS = frozenset({Ecosystem.PYPI, Ecosystem.NPM})
+# npm has no vetted popular-name snapshot; exists + pin still run (P1/P9).
+TYPOSQUAT_ECOSYSTEMS = frozenset({Ecosystem.PYPI})
 
 # Dated snapshots, fetched by eval/fetch_top_pypi.py. npm has no entry: the
 # check is switched off for it, so there is nothing to point at.
@@ -474,10 +472,8 @@ def nearest_popular_name(name: str, ecosystem: Ecosystem) -> tuple[str, int] | N
 class TyposquatResult:
     """Outcome of the near-miss check.
 
-    `covered` is False when the ecosystem has no usable reference set. As with
-    the runtime floors, that is an absence of knowledge: it must not read as a
-    clean result, so `evidence` carries a soft check_unavailable record (P10
-    turns it into REVIEW) and never a BLOCK.
+    `covered` is False when a snapshot that should exist is missing. npm is not
+    in that set: typosquat does not apply, exists/pin still can ALLOW.
     """
 
     covered: bool

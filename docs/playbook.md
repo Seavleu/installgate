@@ -4,7 +4,7 @@ Drop-in instructions for a coding agent (Cursor, Claude, Codex, OpenAI Agents SD
 
 The gate never installs. The calling agent never treats the model as authority. BLOCK is policy-only.
 
-Live demo (this Mac must stay awake): `https://dental-attraction-kong-attachments.trycloudflare.com`  
+Live demo: `https://installgate.installgate-ui.workers.dev`  
 Repo: `https://github.com/Seavleu/installgate` · Policy `2026-10-30.1` · Tool `check_install`
 
 ---
@@ -22,16 +22,17 @@ command per call. Do not batch. Do not skip because the name “looks famous”.
 Do not call check_install for: reading code, editing files, git, tests, or
 commands that do not fetch a package.
 
-check_install returns JSON GateVerdict. You MUST obey next_action:
+check_install returns JSON (GateVerdict plus agent extras). You MUST obey
+next_action:
 
-  proceed         Run only the pinned command in the verdict (name==version
-                  with sha256 / --require-hashes). Do not run the original
-                  unpinned line if a pin is present.
-  use_substitute  Show the command diff to the human. Wait for an explicit
-                  yes. Then run the + line only. Never invent a package name.
+  proceed         Run pinned_command exactly. Do not invent --hash. Do not
+                  run the original unpinned line if a pin is present.
+  use_substitute  Show the diff. Wait for an explicit yes. Then run
+                  substitute_command exactly. Never invent a package name.
   ask_human       Stop. Quote evidence ids (EV-n) and the explanation.
                   Do not install.
   abort           Stop. Do not install. Do not search for a “better” name.
+                  Do not ping a human for an unimplemented check.
 
 Hard rules (non-negotiable):
 
@@ -59,11 +60,19 @@ What a verdict means:
           typosquat, runtime below floor). The model cannot issue BLOCK
           and cannot undo one.
 
-Worked commands (expected class of result):
+Worked commands (expected class of result). Terminal: `ig --no <command>` so it never installs.
 
-  pip install requests         ALLOW, often no model call
-  pip install reqeusts         not on PyPI; substitute is pinned requests
-  pip install no-such-pkg-xyz  BLOCK, no substitute
+  pip install requests              ALLOW P9, pin, ~12ms on cache, no model
+  pip install numpy                 ALLOW P9, established project
+  pip install reqeusts              BLOCK P1 + verified substitute `requests`
+  pip install no-such-pkg-xyz       BLOCK P1, no substitute
+  npm install lodash                ALLOW P9 (exists + pin; no npm typosquat list)
+  npm install totally-fake-npm-xyz  BLOCK P1
+  npm install express               ALLOW unless Tavily adds soft REVIEW colour
+  pip install requests numpy        abort: one package per check
+  uv add numpy                      abort: unsupported command
+
+Not on this CLI (engine/benchmark only): Dockerfile `FROM`, Hugging Face, OSV `MAL-`.
 ```
 
 ---
@@ -76,10 +85,10 @@ No login. One contract for HTTP, MCP, and CLI.
 
 | Use | URL |
 | --- | --- |
-| Page | `https://dental-attraction-kong-attachments.trycloudflare.com` |
+| Page | `https://installgate.installgate-ui.workers.dev` |
 | Check | `POST /api/check` `{"command":"pip install requests"}` |
 | Stream | `POST /api/check/stream` NDJSON stages then the verdict |
-| MCP | `https://dental-attraction-kong-attachments.trycloudflare.com/api/mcp` |
+| MCP | `https://installgate.installgate-ui.workers.dev/api/mcp` |
 | Health | `GET /api/health` → `{"ok":true}` |
 
 Cursor / Claude MCP (remote):
@@ -88,7 +97,7 @@ Cursor / Claude MCP (remote):
 {
   "mcpServers": {
     "installgate": {
-      "url": "https://dental-attraction-kong-attachments.trycloudflare.com/api/mcp"
+      "url": "https://installgate.installgate-ui.workers.dev/api/mcp"
     }
   }
 }
@@ -110,14 +119,14 @@ Cursor / Claude MCP (this repo, stdio):
 HTTP:
 
 ```bash
-curl -sS -X POST https://dental-attraction-kong-attachments.trycloudflare.com/api/check \
+curl -sS -X POST https://installgate.installgate-ui.workers.dev/api/check \
   -H 'Content-Type: application/json' \
   -d '{"command":"pip install requests"}'
 ```
 
-CLI (local clone): `ig pip install reqeusts` — exit `0` ALLOW, `1` REVIEW, `2` BLOCK.
+CLI: no `ig` binary required. POST `/api/check` as above. Local `ig` exists only after `git clone` + `uv sync` (exit `0` ALLOW, `1` REVIEW, `2` BLOCK).
 
-Tool schema: name `check_install`; argument `command` (string, 1–4000 chars). Return: `GateVerdict` JSON. Fields that matter to the agent: `final_verdict`, `next_action`, `evidence[].id`, `explanation`, `remediation` (pinned diff), `failed_closed`, `receipt`.
+Tool schema: name `check_install`; argument `command` (string, 1–4000 chars). One package per call. Return: `GateVerdict` JSON plus `pinned_command`, `substitute_command`, `decided_by` (`policy` | `lattice`), and `error` on empty fail-closed. Policy always wins; `llm_verdict` is not an instruction.
 
 ### Self-host (company)
 
@@ -143,6 +152,6 @@ Point MCP `url` at `https://<your-domain>/api/mcp`. Caddy is the only public por
 
 **Rate / spend.** `RATE_LIMIT_PER_MINUTE` (default 30) per visitor. `DAILY_SPEND_CAP_USD` (demo: 5). Past the cap, policy still answers; explanations may stop.
 
-**Ecosystems.** pip and npm on the HTTP/MCP/CLI surface. Hugging Face and Dockerfile `FROM` exist in the engine. npm typosquat is off → that case is P10 REVIEW.
+**Ecosystems.** pip and npm on the HTTP/MCP/CLI surface. Hugging Face and Dockerfile `FROM` exist in the engine. npm has no typosquat snapshot; a name that exists and pins ALLOWs. A missing name BLOCKs.
 
 **Human confirm.** The hosted page copies the pin (Y). It does not install. CLI may prompt locally after ALLOW; API/MCP never run the package manager.

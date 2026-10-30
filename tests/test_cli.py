@@ -12,6 +12,7 @@ from mcp_server.cli import (
     confirm_run,
     exit_code,
     hook_script,
+    package_version,
     proposed_argv,
     run,
     take_flags,
@@ -46,6 +47,16 @@ def test_hook_wraps_pip_and_npm() -> None:
     assert "pip()" in text
     assert "npm()" in text
     assert "unalias pip" in text
+
+
+def test_version_prints_the_package_and_does_not_check() -> None:
+    assert run(["--version"]) == 0
+    assert run(["-V"]) == 0
+    assert run(["version"]) == 0
+
+
+def test_package_version_is_nonempty() -> None:
+    assert package_version()
 
 
 def test_take_flags_strips_leading_only() -> None:

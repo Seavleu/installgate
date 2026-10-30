@@ -83,9 +83,10 @@ rules:
     rationale: >
       An absence of knowledge, not evidence of harm (FR-09). The reason is in
       observed["reason"]: no_floor_for_branch, floating_tag, digest_only,
-      image_not_in_table (Dockerfile floors) or typosquat_unsupported_ecosystem
-      (npm). The evidence is soft, so P10 can never produce a BLOCK. An ALLOW
-      here would be the gate claiming it checked something it never looked at.
+      or image_not_in_table (Dockerfile floors). The evidence is soft, so P10
+      can never produce a BLOCK. An ALLOW here would be the gate claiming it
+      checked something it never looked at. npm is not in this bucket: it uses
+      exists (P1) and pin (P9) without a typosquat snapshot.
 
 # Fallback when no rule matched: an unpinned target with no findings.
 default_verdict: REVIEW

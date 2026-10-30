@@ -1,10 +1,82 @@
-# InstallGate
+<p align="center">
+  <img src="docs/logo.svg" alt="InstallGate" width="112" height="112">
+</p>
+
+<h1 align="center">InstallGate</h1>
+
+<p align="center">
+  <b>A pre-install trust gate for coding agents</b>
+</p>
+
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-3776AB" alt="Python 3.11+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="Apache-2.0"></a>
+  <a href="https://github.com/Seavleu/installgate/actions/workflows/ci.yml"><img src="https://github.com/Seavleu/installgate/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Seavleu/installgate"><img src="https://img.shields.io/badge/CLI-ig-14171C" alt="CLI ig"></a>
+  <a href="https://tokenfactory.nebius.com/"><img src="https://img.shields.io/badge/Nebius%20×%20NVIDIA-hackathon-7C3AED" alt="Nebius × NVIDIA hackathon"></a>
+</p>
 
 InstallGate is a pre-install trust gate for coding agents. You give it one `pip install` or `npm install` command. It reads registry metadata, applies a fixed policy, and returns one verdict: **ALLOW**, **REVIEW**, or **BLOCK**.
 
 It does not install the package. It does not run the command it proposes. A block or a review can include a pinned substitute as a command diff. A person, or the calling agent, confirms that command before it is used anywhere else.
 
 Built for the Nebius x NVIDIA hackathon. The explanation step uses NVIDIA Nemotron on Nebius Token Factory. The decision itself does not.
+
+## Install
+
+Python 3.11+. Package: [`installgate` on PyPI](https://pypi.org/project/installgate/).
+
+```bash
+uv tool install installgate
+uv tool update-shell          # once; then open a new terminal
+ig --version                  # installgate 0.1.2
+```
+
+`pipx install installgate` works if you have pipx. If `ig` already exists on your PATH:
+
+```bash
+uv tool install --force installgate
+```
+
+`--no` checks only. It never runs pip or npm. Press **n** if a prompt appears.
+
+Optional keys in the environment, or a `.env` in the current directory:
+
+```bash
+export NEBIUS_API_KEY=...     # explanations on REVIEW/BLOCK. ALLOW does not need it.
+export TAVILY_API_KEY=...     # optional web evidence; untrusted, never a BLOCK
+```
+
+## Usage
+
+```bash
+ig --no pip install requests              # ALLOW, pin, no model; rerun is cached
+ig --no pip install reqeusts              # BLOCK typo; substitute is pinned requests
+ig --no pip install no-such-pkg-xyz       # BLOCK, no substitute
+ig --no npm install lodash                # ALLOW (exists + pin)
+ig --no npm install totally-fake-npm-xyz  # BLOCK
+ig --no pip install requests numpy        # abort: one package per check
+```
+
+```bash
+ig pip install reqeusts       # same, may prompt [Y/n] on ALLOW
+ig reqeusts                   # same as pip install reqeusts
+ig --json --no pip install requests
+ig --help
+```
+
+Exit: `0` ALLOW, `1` REVIEW, `2` BLOCK.
+
+Wrap your real pip/npm in this shell (ALLOW then runs your pip; REVIEW/BLOCK stop):
+
+```bash
+eval "$(ig hook)"
+pip install reqeusts
+```
+
+From this repo instead of PyPI: `uv tool install --force .`
+
+Demo talk track: [`docs/demo-script.md`](docs/demo-script.md). Agent playbook: [`docs/playbook.md`](docs/playbook.md).
 
 ## What you get back
 
@@ -18,14 +90,6 @@ Every entry point returns the same `GateVerdict`.
 | `remediation` | A pinned substitute, when one survives a second check. |
 | `next_action` | `proceed`, `use_substitute`, `ask_human`, or `abort`. |
 | `receipt` | Tokens, cost, and the cost if every model call had been Ultra. |
-
-Three commands are enough to see the range:
-
-```text
-pip install requests          ALLOW, no model call
-pip install reqeusts          the name is not on PyPI; the diff proposes pinned requests
-pip install no-such-pkg-xyz   BLOCK, no substitute
-```
 
 ## How a check works
 
@@ -63,51 +127,21 @@ Every rule runs. The strictest match wins. Policy version `2026-10-30.1`.
 | P9 | No findings, and the artefact is pinned | ALLOW |
 | P10 | A check could not run | REVIEW |
 
-An allow requires a pin: version plus sha256, or a Hugging Face revision. Stage 1 attaches the registry pin, so `pip install numpy` can ALLOW. An unpinned package with no findings and no hash is a review. A fresh release of an established project is not P6; a brand-new name is. Release age alone never blocks. The npm typosquat check is off, so an npm install that would have needed it is a review under P10.
+An allow requires a pin: version plus sha256, or a Hugging Face revision. Stage 1 attaches the registry pin, so `pip install numpy` can ALLOW. An unpinned package with no findings and no hash is a review. A fresh release of an established project is not P6; a brand-new name is. Release age alone never blocks. npm has no typosquat snapshot; a name that exists and pins still ALLOWs (P9). A name that does not exist BLOCKs (P1).
 
-## Quick start
-
-Requirements: Python 3.11, [uv](https://docs.astral.sh/uv/), and Node 22 with pnpm for the page.
+## Develop from source
 
 ```bash
 uv sync --extra dev
 cp .env.example .env
+source .venv/bin/activate
 ```
 
-Put `NEBIUS_API_KEY` and, if you want web evidence, `TAVILY_API_KEY` in `.env`. The file is never committed. `ig` and `python -m router.smoke` read `.env` from the current directory. A variable already set in the environment wins. The API process does not read that file, so export it before uvicorn, or use Compose, which loads `.env` for the API service:
+`ig` is then on PATH from this venv. Keys in `.env` are read from the current directory. The API process does not load that file unless you export it:
 
 ```bash
 set -a && source .env && set +a
 uv run uvicorn mcp_server.api:app --port 8000
-```
-
-A clean allow does not need the model key. A review or a block does, if you want an explanation.
-
-## Use it
-
-### Command line
-
-The command is `ig` (`installgate` still works). Type the install the way you would type it.
-
-```bash
-ig pip install reqeusts
-ig reqeusts                 # same as pip install reqeusts
-ig npm install lodash
-```
-
-To keep typing `pip install …` and still get a check, once per shell:
-
-```bash
-eval "$(ig hook)"
-pip install reqeusts                 # checked first; the real pip runs only on ALLOW
-```
-
-InstallGate never runs the install itself. The hook is a shell function: on ALLOW it calls your `pip`, on REVIEW or BLOCK it stops.
-
-Exit codes: `0` ALLOW, `1` REVIEW, `2` BLOCK. A pipe stays one JSON document:
-
-```bash
-ig pip install requests | jq .final_verdict
 ```
 
 ### HTTP
@@ -136,7 +170,15 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The page calls `/api/check`
 
 ### MCP
 
-The tool name is `check_install`. It takes one `command` string and returns the same JSON. It speaks stdio, from the repo root, so `uv` can see the project:
+The tool name is `check_install`. It takes one `command` string (one package). The JSON is a `GateVerdict` plus `pinned_command` (copy-paste on ALLOW), `substitute_command`, and `decided_by`. Policy always wins. It speaks stdio, from the repo root, so `uv` can see the project:
+
+From PyPI:
+
+```bash
+uvx --from installgate python -m mcp_server.server
+```
+
+From this repo:
 
 ```bash
 uv run python -m mcp_server.server
@@ -307,7 +349,7 @@ Recorded on 2026-10-30. Regenerate with `uv run python -m eval.runner`. The full
 
 - Stage 1 only. No model cost, and no measurement of how often a live check skips the model.
 - 25 of the 50 malicious cases simulate the registry before the package was removed. Recall there shows that the OSV path is wired, not that those names were still installable on the day of the run.
-- npm is not in the benchmark. The npm typosquat check is off, and those installs go to review (`test_npm_lodash_is_review_with_one_cited_evidence` in `tests/test_policy.py`).
+- npm is not in the benchmark. Exists + pin still ALLOW (`test_npm_lodash_pinned_is_allow` in `tests/test_policy.py`); there is no npm typosquat snapshot.
 - A floating base tag such as `python:3.12-slim` is a review by design.
 - Only the PHP floors are verified against a vendor advisory (2026-10-21). Other image floors in `engine/runtime_floors.yaml` are placeholders.
 

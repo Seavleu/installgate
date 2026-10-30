@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from contracts.contracts import Ecosystem, GateVerdict, Verdict
@@ -26,6 +27,7 @@ Usage:
   ig -y pip install numpy        # run if ALLOW, no prompt
   ig --no pip install numpy      # check only
   ig --json pip install numpy
+  ig --version
 
   eval "$(ig hook)"              # `pip install` checks, then real pip on ALLOW
 
@@ -35,6 +37,13 @@ Exit: 0 ALLOW, 1 REVIEW, 2 BLOCK. `installgate` is the same command.
 _INSTALLERS = frozenset(
     {"pip", "pip3", "python", "python3", "uv", "npm", "npx", "pnpm", "yarn", "docker"}
 )
+
+
+def package_version() -> str:
+    try:
+        return version("installgate")
+    except PackageNotFoundError:
+        return "0.0.0+local"
 
 
 def command_from_argv(argv: list[str]) -> str:
@@ -224,6 +233,9 @@ def run(argv: list[str]) -> int:
     if not argv or argv[0] in {"-h", "--help", "help"}:
         print(_HELP, end="")
         return 0 if argv else 2
+    if argv[0] in {"-V", "--version", "version"}:
+        print(f"installgate {package_version()}")
+        return 0
     if argv[0] == "hook":
         print(hook_script(), end="")
         return 0

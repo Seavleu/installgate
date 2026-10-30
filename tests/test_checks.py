@@ -233,14 +233,13 @@ def test_evidence_ids_increment_within_a_request():
     assert (first.id, second.id) == ("EV-1", "EV-2")
 
 
-def test_npm_typosquat_check_is_switched_off_not_silently_clean():
+def test_npm_has_no_typosquat_check_and_is_not_a_gap():
+    """Exists/pin still run. A missing popular-name list is not P10 for npm."""
     out = checks.check_typosquat(
         target("lodahs", Ecosystem.NPM), {"exists": True}, EvidenceBuilder(), now=NOW
     )
-    assert out.covered is False
-    assert len(out.evidence) == 1
-    assert_unavailable(out.evidence[0], "typosquat_unsupported_ecosystem")
-    assert "disabled for npm" in (out.reason or "")
+    assert out.covered is True
+    assert out.evidence == []
 
 
 def test_pep503_spellings_are_the_same_project_not_a_typosquat(monkeypatch):

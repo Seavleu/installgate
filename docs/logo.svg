@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="InstallGate">
+  <defs>
+    <linearGradient id="g" x1="12" y1="8" x2="116" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#g)"/>
+  <path fill="#fff" d="M40 38h48a6 6 0 0 1 6 6v8H34v-8a6 6 0 0 1 6-6zm-6 22h60v36a10 10 0 0 1-10 10H44a10 10 0 0 1-10-10V60zm24 8v30h12V68H58z"/>
+  <path fill="#fff" d="M54 24h20v10H54z"/>
+</svg>

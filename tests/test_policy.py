@@ -181,13 +181,19 @@ def test_php_8_3_apache_is_review_not_a_silent_pass():
     assert result.evidence[0].observed["reason"] == "floating_tag"
 
 
-def test_npm_lodash_is_review_with_one_cited_evidence():
+def test_npm_lodash_pinned_is_allow():
     ref = parse_npm("npm install lodash@4.17.21")[0]
     result = _run_one(ref, {"exists": True, "latest_version": "4.17.21", "latest_sha256": "e" * 64})
-    assert result.verdict is Verdict.REVIEW
-    assert result.decision.matched_rules == ("P10",)
-    assert len(result.evidence) == 1
-    assert result.evidence[0].observed["reason"] == "typosquat_unsupported_ecosystem"
+    assert result.verdict is Verdict.ALLOW
+    assert result.decision.matched_rules == ("P9",)
+    assert result.evidence == []
+
+
+def test_npm_missing_package_blocks():
+    ref = parse_npm("npm install no-such-pkg-xyz")[0]
+    result = _run_one(ref, {"exists": False})
+    assert result.verdict is Verdict.BLOCK
+    assert "P1" in result.decision.matched_rules
 
 
 def test_clean_pinned_pypi_package_is_still_allow_with_zero_evidence():

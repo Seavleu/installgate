@@ -18,6 +18,7 @@ from contracts.contracts import (
     Ecosystem,
     Evidence,
     EvidenceKind,
+    ExplanationSentence,
     GateVerdict,
     Outcome,
     TargetRef,
@@ -78,7 +79,12 @@ def _policy_version() -> str:
         return "unknown"
 
 
-def _closed(target: TargetRef, version: str) -> GateVerdict:
+def _closed(
+    target: TargetRef,
+    version: str,
+    *,
+    next_action: Literal["proceed", "use_substitute", "ask_human", "abort"] = "ask_human",
+) -> GateVerdict:
     return GateVerdict(
         request_id=uuid.uuid4().hex,
         target=target,
@@ -89,7 +95,7 @@ def _closed(target: TargetRef, version: str) -> GateVerdict:
         risk_score=0.0,
         failed_closed=True,
         evidence=[],
-        next_action="ask_human",
+        next_action=next_action,
     )
 
 
@@ -108,12 +114,16 @@ def _logged(verdict: GateVerdict) -> GateVerdict:
     return verdict
 
 
-def _engine_only(deterministic_only_ms: int, tavily_calls: int) -> RouteResult:
-    """The budget is spent. Keep the policy verdict and do not call the model."""
+def _engine_only(
+    deterministic_only_ms: int,
+    tavily_calls: int,
+    explanation: tuple[ExplanationSentence, ...] = (),
+) -> RouteResult:
+    """Keep the policy verdict and do not call the model."""
     return RouteResult(
         llm_verdict=Verdict.ALLOW,
         added_targets=(),
-        explanation=(),
+        explanation=explanation,
         receipt=build_receipt(
             [],
             deterministic_only_ms=deterministic_only_ms,
@@ -121,6 +131,26 @@ def _engine_only(deterministic_only_ms: int, tavily_calls: int) -> RouteResult:
         ),
         failed_closed=False,
     )
+
+
+def gap_only(evidence: list[Evidence]) -> bool:
+    """True when the only findings are unimplemented checks (P10)."""
+    return bool(evidence) and all(item.kind is EvidenceKind.CHECK_UNAVAILABLE for item in evidence)
+
+
+def _gap_sentences(evidence: list[Evidence]) -> tuple[ExplanationSentence, ...]:
+    sentences: list[ExplanationSentence] = []
+    for item in evidence:
+        if item.kind is not EvidenceKind.CHECK_UNAVAILABLE:
+            continue
+        reason = str(item.observed.get("reason") or "unavailable")
+        sentences.append(
+            ExplanationSentence(
+                text=f"A check could not run ({reason}) [{item.id}]",
+                evidence_ids=[item.id],
+            )
+        )
+    return tuple(sentences)
 
 
 async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
@@ -134,11 +164,12 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
     except ParseError as exc:
         state.record("parse", exc)
         report("parse", "bad", f"{exc} · fail closed to REVIEW")
-        return _logged(_closed(_INVALID, version))
+        return _logged(_closed(_INVALID, version, next_action="abort"))
     if len(targets) != 1:
-        state.record("parse", "command must name one target")
-        report("parse", "bad", "command must name one target · fail closed to REVIEW")
-        return _logged(_closed(targets[0] if targets else _INVALID, version))
+        names = ", ".join(item.name for item in targets)
+        state.record("parse", f"one package per check, got {len(targets)}: {names}")
+        report("parse", "bad", f"one package per check, got {len(targets)}: {names}")
+        return _logged(_closed(targets[0] if targets else _INVALID, version, next_action="abort"))
 
     target = targets[0]
     report(
@@ -193,8 +224,9 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
                 else "no findings",
             )
             tavily_calls = 0
-            # shortcut: clean ALLOW skips Tavily; a web hit cannot lower a verdict
-            if stage.verdict != Verdict.ALLOW:
+            unimplemented = gap_only(evidence)
+            # shortcut: clean ALLOW skips Tavily; a gap is not a human decision
+            if stage.verdict != Verdict.ALLOW and not unimplemented:
                 found = await search(stage.target, start_id=len(evidence) + 1)
                 evidence.extend(found.evidence)
                 tavily_calls = found.calls
@@ -208,7 +240,11 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
                     else "search failed · stays REVIEW at least",
                 )
             else:
-                report("tavily", "skip", "skipped: clean result")
+                report(
+                    "tavily",
+                    "skip",
+                    "skipped: unimplemented check" if unimplemented else "skipped: clean result",
+                )
             decision = evaluate(stage.target, evidence)
             report(
                 "policy",
@@ -218,7 +254,11 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
             )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             # shortcut: Nano may name extra targets, but this check only gates the parsed one
-            if decision.verdict != Verdict.ALLOW and over_cap():
+            if decision.verdict == Verdict.ALLOW:
+                routed = _engine_only(elapsed_ms, tavily_calls)
+            elif unimplemented:
+                routed = _engine_only(elapsed_ms, tavily_calls, _gap_sentences(evidence))
+            elif over_cap():
                 mark_capped()
                 routed = _engine_only(elapsed_ms, tavily_calls)
             else:
@@ -252,6 +292,8 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
                     if was_capped()
                     else "skipped: clean ALLOW needs no model call"
                     if decision.verdict == Verdict.ALLOW
+                    else "skipped: unimplemented check"
+                    if unimplemented
                     else "no model call",
                 )
             cited = validate_citations(list(routed.explanation), evidence)
@@ -266,10 +308,13 @@ async def check(command: str, on_stage: StageHook | None = None) -> GateVerdict:
 
             remediation = None
             outcome = Outcome(final.value)
-            next_action: Literal["proceed", "use_substitute", "ask_human"] = (
+            next_action: Literal["proceed", "use_substitute", "ask_human", "abort"] = (
                 "proceed" if final == Verdict.ALLOW else "ask_human"
             )
-            if final != Verdict.ALLOW:
+            if unimplemented and final != Verdict.ALLOW:
+                next_action = "abort"
+                report("substitute", "skip", "skipped: unimplemented check")
+            elif final != Verdict.ALLOW:
                 proposal = await _substitute(client, cache, command, stage.target, evidence, state)
                 remediation = proposal.remediation
                 if remediation.status == "VERIFIED_SUBSTITUTE":

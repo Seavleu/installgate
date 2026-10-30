@@ -8,7 +8,7 @@ import pytest
 from contracts.contracts import Ecosystem, TargetRef
 from engine import cache as cache_module
 from engine.cache import Cache
-from engine.clients import UpstreamError, get_json, pypi
+from engine.clients import UpstreamError, get_json, npm, pypi
 from engine.stage1 import enrich_target
 from packaging.tags import Tag
 
@@ -160,3 +160,23 @@ def test_pypi_fetch_hits_the_network_once_then_uses_the_cache(tmp_path: Path) ->
         cache.close()
     assert first == second == {"exists": False}
     assert hits == 1
+
+
+def test_npm_summarise_pins_the_requested_version() -> None:
+    body = {
+        "name": "lodash",
+        "dist-tags": {"latest": "4.17.21"},
+        "time": {"created": "2012-04-23T00:00:00.000Z", "modified": "2021-02-20T00:00:00.000Z"},
+        "versions": {
+            "4.17.21": {
+                "name": "lodash",
+                "dist": {"integrity": "sha512-abc", "shasum": "deadbeef"},
+            }
+        },
+        "maintainers": [{"name": "jdalton"}],
+    }
+    facts = npm.summarise(body, version="4.17.21")
+    assert facts["exists"] is True
+    assert facts["pin_version"] == "4.17.21"
+    assert facts["pin_sha256"] == facts["latest_sha256"]
+    assert len(facts["pin_sha256"]) == 64

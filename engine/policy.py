@@ -102,10 +102,10 @@ def evaluate(
 ) -> PolicyDecision:
     """Evaluate every rule; the strictest match sets the verdict.
 
-    A check that could not run (a floating tag, an image with no floors, an
-    ecosystem with no typosquat reference set) arrives as check_unavailable
-    evidence, which P10 turns into REVIEW. We lack knowledge, not evidence, so
-    it never produces a BLOCK (FR-09).
+    A check that could not run (a floating tag, an image with no floors)
+    arrives as check_unavailable evidence, which P10 turns into REVIEW. We
+    lack knowledge, not evidence, so it never produces a BLOCK (FR-09).
+    npm with no typosquat snapshot is not a gap: exists and pin still run.
     """
     rules, version, default = load_policy(policy_path)
     kinds = {e.kind for e in evidence}

@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+.pypirc
+.cursor/mcp.json
 
 # Python
 .venv/

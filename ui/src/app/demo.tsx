@@ -517,18 +517,31 @@ function Playbook({ origin, mcpConfig, pin }: { origin: string; mcpConfig: strin
           </Step>
         </ol>
       )}
-      {agent === "cli" && (
+      {agent === "cli" && origin && (
         <ol className="mt-4 m-0 list-none space-y-4 p-0">
-          <Step n={1} title="Check one install">
-            <Code text="ig pip install reqeusts" label="Copy command" />
-          </Step>
-          <Step n={2} title="Gate pip in this shell">
-            <Code text={HOOK} label="Copy hook" />
-          </Step>
-          <Step n={3} title="Then type pip as usual">
-            <p className="m-0 text-[13px] text-[#4B5563]">
-              ALLOW runs the real pip. REVIEW and BLOCK stop. InstallGate never imports the package.
+          <Step n={1} title="No install. POST the command">
+            <p className="m-0 mb-1.5 text-[13px] text-[#4B5563]">
+              You do not need <code>ig</code> on this machine. The hosted gate checks it.
             </p>
+            <Code
+              text={`curl -sS -X POST ${origin}/api/check -H 'Content-Type: application/json' -d '{"command":"pip install reqeusts"}'`}
+              label="Copy curl"
+            />
+          </Step>
+          <Step n={2} title="You run the pin">
+            <p className="m-0 text-[13px] text-[#4B5563]">
+              ALLOW: run the pinned pip/npm from the verdict yourself. This site never installs.
+            </p>
+          </Step>
+          <Step n={3} title="Local ig only after a clone">
+            <p className="m-0 mb-1.5 text-[13px] text-[#4B5563]">
+              <code>git clone</code> the repo, <code>uv sync</code>, put keys in <code>.env</code>. Then{" "}
+              <code>ig</code> is on PATH and the hook can wrap pip.
+            </p>
+            <Code text="ig pip install reqeusts" label="Copy command" />
+            <div className="mt-1.5">
+              <Code text={HOOK} label="Copy hook" />
+            </div>
           </Step>
         </ol>
       )}
