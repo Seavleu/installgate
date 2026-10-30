@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "installgate",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    // The gate API. The page forwards /api/check, /api/check/stream and
+    // /api/mcp here; Workers cannot reach localhost.
+    "API_URL": "https://authorities-rainbow-rom-brief.trycloudflare.com",
+    // Public origin printed in the MCP playbook. Set after the first deploy,
+    // once the workers.dev hostname is known.
+    "PUBLIC_SITE_URL": "https://installgate.installgate-ui.workers.dev"
+  }
+}

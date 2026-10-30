@@ -5,3 +5,7 @@ out
 .env
 .env.local
 .env.*.local
+
+# Cloudflare Workers build output
+.open-next/
+.wrangler/
