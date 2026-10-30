@@ -17,6 +17,6 @@
     "API_URL": "https://authorities-rainbow-rom-brief.trycloudflare.com",
     // Public origin printed in the MCP playbook. Set after the first deploy,
     // once the workers.dev hostname is known.
-    "PUBLIC_SITE_URL": ""
+    "PUBLIC_SITE_URL": "https://installgate.installgate-ui.workers.dev"
   }
 }
