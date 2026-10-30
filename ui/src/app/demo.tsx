@@ -44,6 +44,9 @@ const AGENT_DOES = {
 } as const;
 
 const HOOK = 'eval "$(ig hook)"';
+const REPO = "https://github.com/Seavleu/installgate";
+const PYPI = "https://pypi.org/project/installgate/";
+const VERSION = "0.1.3";
 
 function TitleToggle<T extends string>({
   options,
@@ -213,11 +216,16 @@ export function Demo() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-baseline gap-3">
           <h1 className="m-0 text-[18px] font-semibold tracking-[-0.02em]">InstallGate</h1>
+          <span className="text-[12px] text-[#4B5563]">{VERSION}</span>
           <p className="m-0 truncate text-[13px] text-[#4B5563]">
             Paste an install. After ALLOW, y copies the pin. Nothing is installed here.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-[12px] text-[#4B5563]">
+          <GitHubLink />
+          <a href={PYPI} target="_blank" rel="noreferrer" className="text-[#14171C] underline">
+            PyPI
+          </a>
           <span className="inline-flex items-center gap-1.5">
             <span
               aria-hidden="true"
@@ -443,6 +451,22 @@ export function Demo() {
   );
 }
 
+function GitHubLink() {
+  return (
+    <a
+      href={REPO}
+      target="_blank"
+      rel="noreferrer"
+      aria-label="InstallGate on GitHub"
+      className="inline-flex h-7 w-7 items-center justify-center rounded text-[#14171C] hover:bg-[#DDE1E7]"
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+    </a>
+  );
+}
+
 const CLAUDE_ADD = (origin: string) =>
   `claude mcp add installgate --transport http ${origin}/api/mcp`;
 
@@ -533,12 +557,14 @@ function Playbook({ origin, mcpConfig, pin }: { origin: string; mcpConfig: strin
               ALLOW: run the pinned pip/npm from the verdict yourself. This site never installs.
             </p>
           </Step>
-          <Step n={3} title="Local ig only after a clone">
+          <Step n={3} title="Or install ig from PyPI">
             <p className="m-0 mb-1.5 text-[13px] text-[#4B5563]">
-              <code>git clone</code> the repo, <code>uv sync</code>, put keys in <code>.env</code>. Then{" "}
-              <code>ig</code> is on PATH and the hook can wrap pip.
+              <code>ig</code> {VERSION} is on PyPI. Does not need a clone.
             </p>
-            <Code text="ig pip install reqeusts" label="Copy command" />
+            <Code text="uv tool install installgate" label="Copy install" />
+            <div className="mt-1.5">
+              <Code text="ig --no pip install reqeusts" label="Copy check" />
+            </div>
             <div className="mt-1.5">
               <Code text={HOOK} label="Copy hook" />
             </div>
