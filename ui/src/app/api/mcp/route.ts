@@ -4,22 +4,19 @@ import { forward } from "../forward";
 export const dynamic = "force-dynamic";
 
 const LOOPBACK = /^(localhost|127\.0\.0\.1)(:\d+)?$/i;
+const SITE = "https://installgate.installgate-ui.workers.dev";
 
-function advertisedOrigin(request: Request): string | null {
+function advertisedOrigin(): string {
   const env = (process.env.PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
   if (env) {
     try {
-      if (!LOOPBACK.test(new URL(env).host)) return env;
+      const host = new URL(env).host;
+      if (!LOOPBACK.test(host) && !host.endsWith("trycloudflare.com")) return env;
     } catch {
-      return env;
+      return SITE;
     }
   }
-  const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
-    .split(",")[0]
-    .trim();
-  if (!host || LOOPBACK.test(host)) return null;
-  const proto = request.headers.get("x-forwarded-proto") || "https";
-  return `${proto}://${host}`;
+  return SITE;
 }
 
 export function POST(request: Request) {
@@ -31,7 +28,7 @@ export function GET(request: Request) {
   if (accept.includes("text/event-stream")) {
     return forward(request, "/mcp");
   }
-  const origin = advertisedOrigin(request);
+  const origin = advertisedOrigin();
   return NextResponse.json({
     name: "installgate",
     tool: "check_install",

@@ -46,6 +46,7 @@ const AGENT_DOES = {
 const HOOK = 'eval "$(ig hook)"';
 const REPO = "https://github.com/Seavleu/installgate";
 const PYPI = "https://pypi.org/project/installgate/";
+const SITE = "https://installgate.installgate-ui.workers.dev";
 const VERSION = "0.1.3";
 
 function TitleToggle<T extends string>({
@@ -88,7 +89,7 @@ export function Demo() {
   const [command, setCommand] = useState("");
   const [gate, setGate] = useState<"on" | "off">("on");
   const [out, setOut] = useState<"pretty" | "json">("pretty");
-  const [origin, setOrigin] = useState("");
+  const origin = SITE;
   const [api, setApi] = useState<"live" | "down" | "…">("…");
   const [confirm, setConfirm] = useState<ConfirmState>("wait");
   const [log, setLog] = useState<StreamState[]>([]);
@@ -98,22 +99,6 @@ export function Demo() {
   const stream = useStreamCheck();
   const agent = useMcpCheck();
 
-  useEffect(() => {
-    const here = window.location.origin;
-    const loopback = /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?$/i.test(here);
-    if (!loopback) {
-      setOrigin(here);
-      return;
-    }
-    fetch("/api/mcp", { headers: { Accept: "application/json" } })
-      .then((r) => r.json())
-      .then((body: { url?: string | null }) => {
-        if (typeof body.url === "string" && body.url.startsWith("http")) {
-          setOrigin(body.url.replace(/\/api\/mcp\/?$/, ""));
-        }
-      })
-      .catch(() => undefined);
-  }, []);
   useEffect(() => {
     prompt.current?.focus();
   }, [view]);
@@ -505,13 +490,7 @@ function Playbook({ origin, mcpConfig, pin }: { origin: string; mcpConfig: strin
         </div>
       </div>
 
-      {!origin && (
-        <p className="mt-3 m-0 text-[13px] text-[#9B4D1A]">
-          Copy-paste is hidden until this page is opened on the public host (or{" "}
-          <code>PUBLIC_SITE_URL</code> is set). Claude cannot reach <code>localhost</code>.
-        </p>
-      )}
-      {agent === "cursor" && origin && (
+      {agent === "cursor" && (
         <ol className="mt-4 m-0 list-none space-y-4 p-0">
           <Step n={1} title="Create .cursor/mcp.json">
             Project file, or the user file at <code>~/.cursor/mcp.json</code>.
@@ -526,7 +505,7 @@ function Playbook({ origin, mcpConfig, pin }: { origin: string; mcpConfig: strin
           </Step>
         </ol>
       )}
-      {agent === "claude" && origin && (
+      {agent === "claude" && (
         <ol className="mt-4 m-0 list-none space-y-4 p-0">
           <Step n={1} title="Add the HTTP MCP server">
             <Code text={claude} label="Copy install command" />
@@ -541,7 +520,7 @@ function Playbook({ origin, mcpConfig, pin }: { origin: string; mcpConfig: strin
           </Step>
         </ol>
       )}
-      {agent === "cli" && origin && (
+      {agent === "cli" && (
         <ol className="mt-4 m-0 list-none space-y-4 p-0">
           <Step n={1} title="No install. POST the command">
             <p className="m-0 mb-1.5 text-[13px] text-[#4B5563]">
