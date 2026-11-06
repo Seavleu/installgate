@@ -183,8 +183,8 @@ importers:
         specifier: ^3.2.0
         version: 3.3.7(supports-color@7.2.0)
       '@opennextjs/cloudflare':
-        specifier: ^1.20.14
-        version: 1.20.14(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)(wrangler@4.155.0(@types/node@26.6.5))
+        specifier: ^1.20.15
+        version: 1.20.15(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)(wrangler@4.155.0(@types/node@26.6.5))
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
@@ -1027,8 +1027,8 @@ packages:
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
 
-  '@opennextjs/aws@4.1.13':
-    resolution: {integrity: sha512-uqTOoSFbYEY3NJTU/0gTL7ndY+GHYdC8qUb3bvPOpsfqLrjLvFDprngG2FqgJTIzQUxOlpnoodbjUf2jadJTXg==}
+  '@opennextjs/aws@4.1.14':
+    resolution: {integrity: sha512-jV+rxEi5dNxnQbKBftWuIppVvemMrbfaUj0tXINJMEzX7crk1pkmsMwudgk2kgyak1T03/GSMSEpE8nzOKrkDA==}
     hasBin: true
     peerDependencies:
       diff: ^9.0.0
@@ -1037,8 +1037,8 @@ packages:
       diff:
         optional: true
 
-  '@opennextjs/cloudflare@1.20.14':
-    resolution: {integrity: sha512-Grcok/L8iOuWXNtro/FjCExNYnoG+jUTD8Mp/AQI4Z6iMWD1q/xl+tx+NR354EsoUsQRAGmV0OfB7HH7wfdrbg==}
+  '@opennextjs/cloudflare@1.20.15':
+    resolution: {integrity: sha512-Ft7GdS3oDnZ5cZpAowSqpFsjHuZCZ9zBcTjJwYeJGa7Uq32JG3DOlLXh8GW+gsMVWXTz8YTL20sMxG1u+k4NwQ==}
     hasBin: true
     peerDependencies:
       next: '>=15.5.28 <16 || >=16.4.1'
@@ -1078,6 +1078,7 @@ packages:
   '@smithy/core@3.37.0':
     resolution: {integrity: sha512-97imTcCyiPd8k0e9+ts/Sp0W65Dn9Ti357J7M09Ov4tI8Q1JDJVFSoAJtjEVKqfHEr3Pdo2jfolqKCaaiszH0g==}
     engines: {node: '>=18.0.0'}
+    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.5.2':
     resolution: {integrity: sha512-A9uSdn72ozbRUSit0eib0TW7nXuNPlaeM0zcGkJ+nE6tFcSDbnmtwoxbTCFBukVQcszDAyvsd7+rTduPTXpygg==}
@@ -1249,9 +1250,6 @@ packages:
 
   '@types/node@18.19.130':
     resolution: {integrity: sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg==}
-
-  '@types/node@22.20.5':
-    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
   '@types/node@26.6.5':
     resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
@@ -3089,9 +3087,6 @@ packages:
   undici-types@5.26.5:
     resolution: {integrity: sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==}
 
-  undici-types@6.21.0:
-    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
-
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
@@ -4233,7 +4228,7 @@ snapshots:
 
   '@nolyfill/is-core-module@1.0.39': {}
 
-  '@opennextjs/aws@4.1.13(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)':
+  '@opennextjs/aws@4.1.14(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)':
     dependencies:
       '@ast-grep/napi': 0.45.3
       '@aws-sdk/client-cloudfront': 3.984.0
@@ -4256,11 +4251,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@opennextjs/cloudflare@1.20.14(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)(wrangler@4.155.0(@types/node@26.6.5))':
+  '@opennextjs/cloudflare@1.20.15(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)(wrangler@4.155.0(@types/node@26.6.5))':
     dependencies:
       '@ast-grep/napi': 0.45.3
       '@dotenvx/dotenvx': 2.38.2
-      '@opennextjs/aws': 4.1.13(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)
+      '@opennextjs/aws': 4.1.14(next@15.5.28(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@7.2.0)
       ci-info: 4.4.0
       cloudflare: 4.5.0
       comment-json: 4.6.2
@@ -4510,16 +4505,12 @@ snapshots:
 
   '@types/node-fetch@2.6.13':
     dependencies:
-      '@types/node': 22.20.5
+      '@types/node': 26.6.5
       form-data: 4.0.6
 
   '@types/node@18.19.130':
     dependencies:
       undici-types: 5.26.5
-
-  '@types/node@22.20.5':
-    dependencies:
-      undici-types: 6.21.0
 
   '@types/node@26.6.5':
     dependencies:
@@ -6665,8 +6656,6 @@ snapshots:
       which-boxed-primitive: 1.1.1
 
   undici-types@5.26.5: {}
-
-  undici-types@6.21.0: {}
 
   undici-types@8.9.0: {}
 
