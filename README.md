@@ -244,8 +244,8 @@ On startup the API writes three demo snapshots into the cache when those keys ar
 | `NEBIUS_API_KEY` | empty | Token Factory credential. Required for a model call. |
 | `NEBIUS_BASE_URL` | `https://api.tokenfactory.nebius.com/v1/` | OpenAI-compatible base URL. |
 | `TAVILY_API_KEY` | empty | Web evidence. Missing key: no web evidence, and a review or block is marked `failed_closed`. The verdict is unchanged. |
-| `MODEL_NANO` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | Override. Otherwise resolved from `GET /v1/models`. |
-| `MODEL_SUPER` | `nvidia/nemotron-3-super-120b-a12b` | Override. |
+| `MODEL_NANO` | `nvidia/Nemotron-3_5-Lightning` | Override. Otherwise resolved from `GET /v1/models`. |
+| `MODEL_SUPER` | `nvidia/Nemotron-3.5-Super-VL` | Override. |
 | `MODEL_ULTRA` | `nvidia/Nemotron-3-Ultra-550b-a55b` | Override. |
 | `ULTRA_ENABLED` | `true` | Ultra runs only for policy REVIEW at risk ≥ 0.6. |
 | `DAILY_SPEND_CAP_USD` | `5` | Model budget for the UTC day. After it is spent, checks still return the policy verdict and skip the model. |

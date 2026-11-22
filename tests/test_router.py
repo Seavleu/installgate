@@ -13,8 +13,8 @@ from router.receipt import build_receipt, cost_usd
 from router.tiers import route
 
 BASE = "https://api.tokenfactory.nebius.com/v1/"
-NANO = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-SUPER = "nvidia/nemotron-3-super-120b-a12b"
+NANO = "nvidia/Nemotron-3_5-Lightning"
+SUPER = "nvidia/Nemotron-3.5-Super-VL"
 ULTRA = "nvidia/Nemotron-3-Ultra-550b-a55b"
 
 
