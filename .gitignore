@@ -32,3 +32,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Test coverage and local run state
+.coverage
+.coverage.*
+htmlcov/
+.keep-alive/
