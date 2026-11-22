@@ -37,14 +37,14 @@ push_secret NEBIUS_API_KEY "${NEBIUS_API_KEY:-}"
 push_secret TAVILY_API_KEY "${TAVILY_API_KEY:-}"
 
 # --port 8000: the image listens on 8000, not Cloud Run's default 8080.
-# --min-instances 1: always warm. Set to 0 to scale to zero and save money.
+# --min-instances 0: scale to zero when idle (cold start of a few seconds). Use 1 to stay warm.
 # --max-instances 3: caps spend if the URL is abused.
 gcloud run deploy "$SERVICE" \
   --source . \
   --region "$REGION" \
   --port 8000 \
   --allow-unauthenticated \
-  --min-instances 1 \
+  --min-instances 0 \
   --max-instances 3 \
   --memory 512Mi \
   --set-secrets "NEBIUS_API_KEY=NEBIUS_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest" \
@@ -53,4 +53,4 @@ gcloud run deploy "$SERVICE" \
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 echo "API: $URL"
 curl -fsS "$URL/health" && echo
-echo "Next: set API_URL in ui/wrangler.jsonc to $URL and redeploy the Worker."
+echo "Next: scripts/deploy-cloudrun-ui.sh"

@@ -7,10 +7,7 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
-    "lint": "next lint",
-    "cf:build": "CF_WORKER=1 opennextjs-cloudflare build",
-    "cf:deploy": "CF_WORKER=1 opennextjs-cloudflare deploy",
-    "cf:preview": "CF_WORKER=1 opennextjs-cloudflare preview"
+    "lint": "next lint"
   },
   "dependencies": {
     "next": "^15.1.0",
@@ -20,7 +17,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
-    "@opennextjs/cloudflare": "^1.20.14",
     "@types/node": "^26.6.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -28,7 +24,6 @@
     "eslint-config-next": "^15.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
-    "typescript": "^5.7.2",
-    "wrangler": "^4.155.0"
+    "typescript": "^5.7.2"
   }
 }
