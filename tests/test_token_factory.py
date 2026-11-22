@@ -23,8 +23,8 @@ def _model(model_id: str) -> dict[str, object]:
 CATALOG = {
     "object": "list",
     "data": [
-        _model("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"),
-        _model("nvidia/nemotron-3-super-120b-a12b"),
+        _model("nvidia/Nemotron-3_5-Lightning"),
+        _model("nvidia/Nemotron-3.5-Super-VL"),
         _model("nvidia/Nemotron-3-Ultra-550b-a55b"),
     ],
 }
@@ -45,8 +45,8 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_resolve_model_ids_from_catalog() -> None:
     respx.get(f"{BASE}models").mock(return_value=httpx.Response(200, json=CATALOG))
     ids = await resolve_model_ids()
-    assert ids.nano == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-    assert ids.super == "nvidia/nemotron-3-super-120b-a12b"
+    assert ids.nano == "nvidia/Nemotron-3_5-Lightning"
+    assert ids.super == "nvidia/Nemotron-3.5-Super-VL"
     assert ids.ultra == "nvidia/Nemotron-3-Ultra-550b-a55b"
 
 
@@ -56,7 +56,7 @@ async def test_missing_tier_is_disabled() -> None:
     respx.get(f"{BASE}models").mock(
         return_value=httpx.Response(
             200,
-            json={"object": "list", "data": [_model("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")]},
+            json={"object": "list", "data": [_model("nvidia/Nemotron-3_5-Lightning")]},
         )
     )
     ids = await resolve_model_ids()
@@ -109,8 +109,8 @@ def _completion(model_id: str) -> dict[str, object]:
 @respx.mock
 @pytest.mark.asyncio
 async def test_smoke_logs_nano_and_super() -> None:
-    nano = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-    super_id = "nvidia/nemotron-3-super-120b-a12b"
+    nano = "nvidia/Nemotron-3_5-Lightning"
+    super_id = "nvidia/Nemotron-3.5-Super-VL"
     respx.get(f"{BASE}models").mock(return_value=httpx.Response(200, json=CATALOG))
     route = respx.post(f"{BASE}chat/completions").mock(
         return_value=httpx.Response(200, json=_completion(nano))
@@ -134,7 +134,7 @@ async def test_smoke_logs_nano_and_super() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_smoke_skips_missing_nano() -> None:
-    super_id = "nvidia/nemotron-3-super-120b-a12b"
+    super_id = "nvidia/Nemotron-3.5-Super-VL"
     respx.get(f"{BASE}models").mock(
         return_value=httpx.Response(
             200,

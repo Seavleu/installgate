@@ -30,8 +30,8 @@ _log = logging.getLogger("installgate.router")
 TModel = TypeVar("TModel", bound=BaseModel)
 
 _TIER_NEEDLES: dict[str, tuple[str, ...]] = {
-    "nano": ("nemotron-3-nano", "nemotron-nano"),
-    "super": ("nemotron-3-super", "nemotron-super"),
+    "nano": ("nemotron-3_5-lightning", "nemotron-3-nano", "nemotron-nano"),
+    "super": ("nemotron-3.5-super", "nemotron-3-super", "nemotron-super"),
     "ultra": ("nemotron-3-ultra", "nemotron-ultra"),
 }
 
@@ -109,10 +109,11 @@ def _pick(catalog: list[str], tier: str) -> str | None:
             return catalog[lowered.index(override.casefold())]
         return None
     needles = _TIER_NEEDLES[tier]
-    for item in catalog:
-        folded = item.casefold()
-        if any(n in folded for n in needles):
-            return item
+    # Needles are ordered by preference: the newest model wins when several match.
+    for needle in needles:
+        for item in catalog:
+            if needle in item.casefold():
+                return item
     return None
 
 
