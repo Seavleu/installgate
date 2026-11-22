@@ -38,14 +38,14 @@ push_secret TAVILY_API_KEY "${TAVILY_API_KEY:-}"
 
 # --port 8000: the image listens on 8000, not Cloud Run's default 8080.
 # --min-instances 0: scale to zero when idle (cold start of a few seconds). Use 1 to stay warm.
-# --max-instances 3: caps spend if the URL is abused.
+# --max-instances 1: one instance keeps the in-memory spend cap and rate limit exact.
 gcloud run deploy "$SERVICE" \
   --source . \
   --region "$REGION" \
   --port 8000 \
   --allow-unauthenticated \
   --min-instances 0 \
-  --max-instances 3 \
+  --max-instances 1 \
   --memory 512Mi \
   --set-secrets "NEBIUS_API_KEY=NEBIUS_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest" \
   --set-env-vars "^@^NEBIUS_BASE_URL=${NEBIUS_BASE_URL}@MODEL_NANO=${MODEL_NANO}@MODEL_SUPER=${MODEL_SUPER}@MODEL_ULTRA=${MODEL_ULTRA}@DAILY_SPEND_CAP_USD=${DAILY_SPEND_CAP_USD}@ULTRA_ENABLED=${ULTRA_ENABLED}@RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-30}@RATE_LIMIT_TRUST_PROXY=true@CACHE_PATH=/tmp/installgate.sqlite@LOG_LEVEL=${LOG_LEVEL:-INFO}"
