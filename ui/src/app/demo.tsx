@@ -46,7 +46,7 @@ const AGENT_DOES = {
 const HOOK = 'eval "$(ig hook)"';
 const REPO = "https://github.com/Seavleu/installgate";
 const PYPI = "https://pypi.org/project/installgate/";
-const SITE = "https://installgate.installgate-ui.workers.dev";
+const SITE = "https://installgate-ui-281484769518.asia-northeast3.run.app";
 const VERSION = "0.1.3";
 
 function TitleToggle<T extends string>({

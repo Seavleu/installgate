@@ -4,7 +4,7 @@ Drop-in instructions for a coding agent (Cursor, Claude, Codex, OpenAI Agents SD
 
 The gate never installs. The calling agent never treats the model as authority. BLOCK is policy-only.
 
-Live demo: `https://installgate.installgate-ui.workers.dev`  
+Live demo: `https://installgate-ui-281484769518.asia-northeast3.run.app`  
 Repo: `https://github.com/Seavleu/installgate` · Policy `2026-10-30.1` · Tool `check_install`
 
 ---
@@ -85,10 +85,10 @@ No login. One contract for HTTP, MCP, and CLI.
 
 | Use    | URL                                                      |
 | ------ | -------------------------------------------------------- |
-| Page   | `https://installgate.installgate-ui.workers.dev`         |
+| Page   | `https://installgate-ui-281484769518.asia-northeast3.run.app`         |
 | Check  | `POST /api/check` `{"command":"pip install requests"}`   |
 | Stream | `POST /api/check/stream` NDJSON stages then the verdict  |
-| MCP    | `https://installgate.installgate-ui.workers.dev/api/mcp` |
+| MCP    | `https://installgate-ui-281484769518.asia-northeast3.run.app/api/mcp` |
 | Health | `GET /api/health` → `{"ok":true}`                        |
 
 Cursor / Claude MCP (remote):
@@ -97,7 +97,7 @@ Cursor / Claude MCP (remote):
 {
   "mcpServers": {
     "installgate": {
-      "url": "https://installgate.installgate-ui.workers.dev/api/mcp"
+      "url": "https://installgate-ui-281484769518.asia-northeast3.run.app/api/mcp"
     }
   }
 }
@@ -119,7 +119,7 @@ Cursor / Claude MCP (this repo, stdio):
 HTTP:
 
 ```bash
-curl -sS -X POST https://installgate.installgate-ui.workers.dev/api/check \
+curl -sS -X POST https://installgate-ui-281484769518.asia-northeast3.run.app/api/check \
   -H 'Content-Type: application/json' \
   -d '{"command":"pip install requests"}'
 ```
@@ -142,7 +142,7 @@ Point MCP `url` at `https://<your-domain>/api/mcp`. Caddy is the only public por
 
 ## 3. Operator notes
 
-**This demo.** Compose on this Mac + Cloudflare Tunnel. Lid sleep, reboot, or killing Docker/`cloudflared` takes the URL down. A new tunnel gets a new hostname; update MCP `url` and this playbook.
+**This demo.** Two Cloud Run services in `asia-northeast3`: `installgate-api` and `installgate-ui`, scaled to zero when idle (first request after a pause takes a few seconds). Deploy with `scripts/deploy-cloudrun.sh`, then `scripts/deploy-cloudrun-ui.sh`. Keys live in Secret Manager.
 
 **Secrets.** Keys live in `.env` on the host only. Never paste them into this file, the UI, or logs. Space/HF/Vercel are not the host.
 

@@ -59,6 +59,6 @@ Tool: `check_install`. Argument: `command`.
 ## Docs
 
 GitHub: [Seavleu/installgate](https://github.com/Seavleu/installgate) (full README, policy, demo).
-Live page: [installgate.installgate-ui.workers.dev](https://installgate.installgate-ui.workers.dev)
+Live page: [installgate-ui-281484769518.asia-northeast3.run.app](https://installgate-ui-281484769518.asia-northeast3.run.app)
 
 License: Apache-2.0

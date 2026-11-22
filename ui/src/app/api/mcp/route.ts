@@ -4,14 +4,14 @@ import { forward } from "../forward";
 export const dynamic = "force-dynamic";
 
 const LOOPBACK = /^(localhost|127\.0\.0\.1)(:\d+)?$/i;
-const SITE = "https://installgate.installgate-ui.workers.dev";
+const SITE = "https://installgate-ui-281484769518.asia-northeast3.run.app";
 
 function advertisedOrigin(): string {
   const env = (process.env.PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
   if (env) {
     try {
       const host = new URL(env).host;
-      if (!LOOPBACK.test(host) && !host.endsWith("trycloudflare.com")) return env;
+      if (!LOOPBACK.test(host)) return env;
     } catch {
       return SITE;
     }
